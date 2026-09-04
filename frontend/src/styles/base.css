@@ -1,0 +1,206 @@
+:root {
+  /* Brand */
+  --accent: #6c5ce7;
+  --accent-strong: #5a4ad6;
+  --accent-grad: linear-gradient(135deg, #8b5cf6 0%, #6c5ce7 55%, #4f8bf7 100%);
+  --accent-soft: #efedfe;
+
+  /* Surfaces */
+  --bg: #eef1fb;
+  --surface: #ffffff;
+  --surface-2: #f6f7fc;
+  --surface-3: #eceef8;
+  --glass: rgba(255, 255, 255, 0.72);
+
+  /* Text */
+  --text: #20263b;
+  --text-2: #4a5268;
+  --text-3: #8088a0;
+
+  /* Lines & misc */
+  --line: #e7eaf6;
+  --line-strong: #d8dcea;
+  --danger: #e5484d;
+  --danger-hover: #d33b40;
+  --danger-soft: #fdecec;
+  --success: #30a46c;
+
+  --radius-s: 10px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(32, 38, 59, 0.06), 0 0 0 1px rgba(32, 38, 59, 0.03);
+  --shadow-card-hover: 0 10px 24px -8px rgba(32, 38, 59, 0.18), 0 2px 6px rgba(32, 38, 59, 0.06);
+  --shadow-pop: 0 24px 60px -18px rgba(32, 38, 59, 0.35), 0 8px 20px rgba(32, 38, 59, 0.12);
+  --shadow-soft: 0 8px 22px -12px rgba(32, 38, 59, 0.2);
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+.icon {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent-grad);
+  background-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 12px -6px rgba(108, 92, 231, 0.6);
+  transition: transform 0.08s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.btn:hover {
+  box-shadow: 0 6px 16px -6px rgba(108, 92, 231, 0.65);
+  filter: brightness(1.03);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+.btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn--ghost {
+  background: var(--surface-3);
+  color: var(--text-2);
+  box-shadow: none;
+}
+.btn--ghost:hover {
+  background: var(--line);
+  color: var(--text);
+}
+.btn--white {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: none;
+}
+.btn--white:hover {
+  background: var(--surface-2);
+}
+.btn--danger {
+  background: var(--danger);
+  box-shadow: 0 4px 12px -6px rgba(229, 72, 77, 0.55);
+}
+.btn--danger:hover {
+  background: var(--danger-hover);
+  filter: none;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.icon-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.icon-btn--danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ---------- Inputs ---------- */
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  padding: 9px 12px;
+  font-size: 14px;
+  background: var(--surface);
+  transition: border 0.15s ease, box-shadow 0.15s ease;
+}
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.16);
+}
+.textarea {
+  resize: vertical;
+  min-height: 70px;
+  line-height: 1.5;
+}
+
+/* ---------- Scrollbars ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 130, 160, 0.35);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 130, 160, 0.55);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

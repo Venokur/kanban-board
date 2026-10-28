@@ -29,8 +29,14 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 # открыть http://localhost:5173
 ```
 
-Остановка: `docker compose down`.  
-Полный сброс данных (пересоздание схемы и сидов): `docker compose down -v`.
+Остановка (теми же файлами, какими запускали):
+
+```bash
+docker compose down                                   # производственный режим
+docker compose -f docker-compose.yml -f docker-compose.dev.yml down   # режим разработки
+```
+
+Полный сброс данных (пересоздание схемы и сидов): та же команда + `-v`.
 
 ## Конфигурация
 

@@ -160,9 +160,42 @@ final class BoardController
             }
         }
 
+        // Labels are a set, not a column: diff them before the write so the
+        // activity trail can say which ones were attached or removed.
+        $labelsBefore = array_key_exists('label_ids', $fields)
+            ? BoardRepo::cardLabelIds($params['id'])
+            : [];
         BoardRepo::updateCard($params['id'], $fields);
-        $changed = array_keys($fields);
-        EventRepo::log($params['id'], (int)$user['id'], 'card.updated', ['fields' => $changed]);
+        // Label changes get their own events below, so they are not repeated
+        // inside the generic "changed fields" entry.
+        $changed = array_values(array_diff(array_keys($fields), ['label_ids']));
+
+        $attached = [];
+        $detached = [];
+        if (array_key_exists('label_ids', $fields)) {
+            $labelsAfter = BoardRepo::cardLabelIds($params['id']);
+            $attachedIds = array_values(array_diff($labelsAfter, $labelsBefore));
+            $detachedIds = array_values(array_diff($labelsBefore, $labelsAfter));
+            $names = LabelRepo::namesByIds(array_merge($attachedIds, $detachedIds));
+            $attached = array_values(array_map(
+                static fn(int $id): string => $names[$id] ?? ('#' . $id),
+                $attachedIds,
+            ));
+            $detached = array_values(array_map(
+                static fn(int $id): string => $names[$id] ?? ('#' . $id),
+                $detachedIds,
+            ));
+        }
+
+        if ($changed !== []) {
+            EventRepo::log($params['id'], (int)$user['id'], 'card.updated', ['fields' => $changed]);
+        }
+        if ($attached !== []) {
+            EventRepo::log($params['id'], (int)$user['id'], 'label.attached', ['labels' => $attached]);
+        }
+        if ($detached !== []) {
+            EventRepo::log($params['id'], (int)$user['id'], 'label.detached', ['labels' => $detached]);
+        }
         return self::sync();
     }
 
@@ -197,7 +230,7 @@ final class BoardController
 
     public static function orderCards(Request $request, Response $response, array $params): array
     {
-        Auth::currentUser($request);
+        $user = Auth::currentUser($request);
         $body = Http::body($request);
         $columns = $body['columns'] ?? null;
         if (!is_array($columns)) {
@@ -208,7 +241,16 @@ final class BoardController
                 throw new HttpException(422, 'Каждый элемент columns должен содержать id и массив cards');
             }
         }
-        BoardRepo::orderCards($columns);
+        // Ordering only reports the cards that changed column; an in-column
+        // reorder is not a move and must not pollute the activity trail.
+        foreach (BoardRepo::orderCards($columns) as $move) {
+            EventRepo::log($move['cardId'], (int)$user['id'], 'card.moved', [
+                'from' => $move['fromTitle'],
+                'fromId' => $move['fromId'],
+                'to' => $move['toTitle'],
+                'toId' => $move['toId'],
+            ]);
+        }
         return self::sync();
     }
 
@@ -239,8 +281,11 @@ final class BoardController
 
     public static function deleteComment(Request $request, Response $response, array $params): array
     {
-        Auth::currentUser($request);
-        BoardRepo::deleteComment($params['id']);
+        $user = Auth::currentUser($request);
+        $cardId = BoardRepo::deleteComment($params['id']);
+        if ($cardId > 0) {
+            EventRepo::log($cardId, (int)$user['id'], 'comment.deleted');
+        }
         return self::sync();
     }
 
@@ -299,20 +344,26 @@ final class BoardController
 
     public static function updateChecklistItem(Request $request, Response $response, array $params): array
     {
-        Auth::currentUser($request);
+        $user = Auth::currentUser($request);
         $body = Http::body($request);
         $text = array_key_exists('text', $body)
             ? Http::requireString($body, 'text', 500)
             : null;
         $done = array_key_exists('done', $body) ? Http::requireBool($body, 'done') : null;
-        ChecklistRepo::update($params['id'], $text, $done);
+        $cardId = ChecklistRepo::update($params['id'], $text, $done);
+        if ($cardId > 0) {
+            EventRepo::log($cardId, (int)$user['id'], 'checklist.updated', ['done' => $done]);
+        }
         return self::sync();
     }
 
     public static function deleteChecklistItem(Request $request, Response $response, array $params): array
     {
-        Auth::currentUser($request);
-        ChecklistRepo::delete($params['id']);
+        $user = Auth::currentUser($request);
+        $cardId = ChecklistRepo::delete($params['id']);
+        if ($cardId > 0) {
+            EventRepo::log($cardId, (int)$user['id'], 'checklist.deleted');
+        }
         return self::sync();
     }
 

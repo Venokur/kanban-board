@@ -34,7 +34,10 @@ final class ChecklistRepo
         });
     }
 
-    public static function update(int $id, ?string $text, ?bool $done): void
+    /**
+     * @return int card id the item belongs to
+     */
+    public static function update(int $id, ?string $text, ?bool $done): int
     {
         $sets = [];
         $params = [];
@@ -47,11 +50,12 @@ final class ChecklistRepo
             $params[] = $done;
         }
         if ($sets === []) {
-            return;
+            return 0;
         }
 
         $boardId = BoardRepo::boardId();
-        Db::transaction(static function ($conn) use ($id, $boardId, $sets, $params): void {
+        $cardId = 0;
+        Db::transaction(static function ($conn) use ($id, $boardId, $sets, $params, &$cardId): void {
             $item = Db::connQueryOne(
                 $conn,
                 'SELECT ci.id, ci.card_id FROM checklist_items ci
@@ -63,16 +67,23 @@ final class ChecklistRepo
             if ($item === null) {
                 throw new HttpException(404, 'Пункт чек-листа не найден');
             }
+            $cardId = (int)$item['card_id'];
             $queryParams = array_merge($params, [$id]);
             Db::connExec($conn, 'UPDATE checklist_items SET ' . implode(', ', $sets) . ' WHERE id = ?', $queryParams);
-            Db::connExec($conn, 'UPDATE cards SET updated_at = now() WHERE id = ?', [(int)$item['card_id']]);
+            Db::connExec($conn, 'UPDATE cards SET updated_at = now() WHERE id = ?', [$cardId]);
         });
+
+        return $cardId;
     }
 
-    public static function delete(int $id): void
+    /**
+     * @return int card id the item belonged to
+     */
+    public static function delete(int $id): int
     {
         $boardId = BoardRepo::boardId();
-        Db::transaction(static function ($conn) use ($id, $boardId): void {
+        $cardId = 0;
+        Db::transaction(static function ($conn) use ($id, $boardId, &$cardId): void {
             $item = Db::connQueryOne(
                 $conn,
                 'SELECT ci.id, ci.card_id, ci.position FROM checklist_items ci
@@ -84,15 +95,18 @@ final class ChecklistRepo
             if ($item === null) {
                 throw new HttpException(404, 'Пункт чек-листа не найден');
             }
+            $cardId = (int)$item['card_id'];
             Db::connExec($conn, 'DELETE FROM checklist_items WHERE id = ?', [$id]);
             // Keep positions dense within the card.
             Db::connExec(
                 $conn,
                 'UPDATE checklist_items SET position = position - 1
                   WHERE card_id = ? AND position > ?',
-                [(int)$item['card_id'], (int)$item['position']],
+                [$cardId, (int)$item['position']],
             );
         });
+
+        return $cardId;
     }
 
     /**

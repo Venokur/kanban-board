@@ -14,6 +14,28 @@ final class LabelRepo
         return in_array($color, self::COLORS, true);
     }
 
+    /**
+     * Label names keyed by id, for event payloads.
+     *
+     * @param array<int,int> $ids
+     * @return array<int,string>
+     */
+    public static function namesByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $params = [];
+        $list = Db::placeholders($ids, $params);
+        $rows = Db::query('SELECT id, name FROM labels WHERE id IN (' . $list . ')', $params);
+        $names = [];
+        foreach ($rows as $row) {
+            $names[(int)$row['id']] = (string)$row['name'];
+        }
+
+        return $names;
+    }
+
     public static function create(string $name, string $color): int
     {
         $boardId = BoardRepo::boardId();

@@ -574,8 +574,48 @@ const EVENT_TEXT = {
   'label.detached': 'снял(а) метку',
 }
 
+// Server field names are storage details; the timeline speaks Russian.
+const FIELD_TEXT = {
+  title: 'название',
+  description: 'описание',
+  assignee_id: 'исполнитель',
+  due_date: 'срок',
+  priority: 'приоритет',
+  cover_color: 'обложка',
+  estimate: 'оценка',
+}
+
+function fieldList(fields) {
+  if (!Array.isArray(fields) || !fields.length) return ''
+  const names = fields.map((field) => FIELD_TEXT[field] || field)
+  return names.join(', ')
+}
+
 function eventText(event) {
-  return EVENT_TEXT[event.kind] || 'изменил(а) карточку'
+  const payload = event.payload || {}
+  switch (event.kind) {
+    case 'card.moved':
+      if (payload.to) return `переместил(а) в «${payload.to}»`
+      return EVENT_TEXT['card.moved']
+    case 'card.updated': {
+      const names = fieldList(payload.fields)
+      return names ? `изменил(а): ${names}` : EVENT_TEXT['card.updated']
+    }
+    case 'label.attached':
+      return payload.labels && payload.labels.length
+        ? `добавил(а) метки: ${payload.labels.join(', ')}`
+        : EVENT_TEXT['label.attached']
+    case 'label.detached':
+      return payload.labels && payload.labels.length
+        ? `снял(а) метки: ${payload.labels.join(', ')}`
+        : EVENT_TEXT['label.detached']
+    case 'checklist.updated':
+      if (payload.done === true) return 'отметил(а) пункт чек-листа'
+      if (payload.done === false) return 'снял(а) отметку с пункта чек-листа'
+      return EVENT_TEXT['checklist.updated']
+    default:
+      return EVENT_TEXT[event.kind] || 'изменил(а) карточку'
+  }
 }
 
 async function loadEvents() {

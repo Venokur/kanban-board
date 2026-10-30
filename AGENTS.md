@@ -227,7 +227,7 @@ frontend/src/
   stores/ui.js               глобальное состояние UI (открытые панели и т.п.)
   router/index.js            guard: / требует авторизации, /login — только для гостя
   views/LoginView.vue        вход/регистрация + демо-вход
-  views/BoardView.vue        каркас доски, rename доски, индикатор WS, архив, палитра
+  views/BoardView.vue        каркас доски, архив, палитра, горячие клавиши
   components/SvgIcon.vue     иконки из src/icons/index.js
   components/Avatar.vue      инициалы + детерминированный цвет
   components/SelectMenu.vue  выпадающий список (Teleport + fixed, клавиатура, ARIA listbox)
@@ -236,10 +236,11 @@ frontend/src/
   components/ToastHost.vue   стек тостов, в т.ч. «Вернуть» после архивации
   composables/useConfirm.js  confirmAction({...}) → Promise<boolean>, очередь диалогов
   composables/useToast.js    pushToast/toastError/toastUndo
+  composables/useStableStatus.js  дебаунс меняющегося статуса (WS) перед показом в UI
   directives/tooltip.js      v-tooltip — своя подсказка вместо атрибута title
-  components/board/TopBar.vue        бренд, пользователь, тема, выход
+  components/board/TopBar.vue        единая шапка: бренд + название доски, статус WS, метки/архив, тема, пользователь
   components/board/BoardFilters.vue  поиск, фильтры (метки/исполнитель/приоритет/срок/мои), сортировка
-  components/board/Column.vue        колонка: переименование, WIP-лимит, акцент, удаление, draggable
+  components/board/Column.vue        колонка: две строки шапки (кнопки сверху, название снизу), WIP-лимит, акцент, удаление, draggable
   components/board/CardItem.vue      карточка в списке: метки, срок, приоритет, чек-лист, обложка
   components/board/CardModal.vue     боковая панель: свойства, метки, чек-лист, история, комментарии
   components/board/ArchivePanel.vue  модалка архива: восстановление и удаление
@@ -254,8 +255,8 @@ frontend/src/
   utils/urlState.js          фильтры/сортировка ↔ query-строка
   icons/index.js             словарь SVG-путей
 frontend/public/theme-boot.js   тема до первой отрисовки (внешний файл из-за CSP)
-frontend/tests/              Vitest: time, urlState, labels
-e2e/                         Playwright: auth, board, filters, keyboard, appearance
+frontend/tests/              Vitest: time, urlState, labels, useStableStatus
+e2e/                         Playwright: auth, board, filters, keyboard, appearance, header, drag-preview
 ```
 
 ## 6. API и WebSocket
@@ -284,10 +285,10 @@ e2e/                         Playwright: auth, board, filters, keyboard, appeara
 | POST | `/api/cards` | `{columnId, title, description?}` |
 | PUT | `/api/cards/{id}` | подмножество: `title`, `description`, `assigneeId` (int\|null), `dueDate` (`YYYY-MM-DD`\|null), `priority` (0…3), `labelIds` (int[]), `coverColor` (ключ\|null), `estimate` (число\|null) |
 | DELETE | `/api/cards/{id}` | |
-| POST | `/api/cards/order` | `{columns:[{id, cards:[id,…]}, …]}` — после drag & drop |
+| POST | `/api/cards/order` | `{columns:[{id, cards:[id,…]}, …]}` — после drag & drop; смена колонки пишет `card.moved` |
 | POST | `/api/cards/{id}/archive` | в архив (позиции в колонке уплотняются) |
 | POST | `/api/cards/{id}/restore` | из архива в конец колонки |
-| GET | `/api/cards/{id}/events` | `{events:[{id, kind, payload, user, createdAt}]}`, новые сверху |
+| GET | `/api/cards/{id}/events` | `{events:[{id, kind, payload, user, createdAt}]}`, новые сверху; у карточек без `card.created` создание синтезируется из `cards.created_at` (`id: 0`) |
 | POST | `/api/labels` | `{name, color}` → снапшот + `createdLabelId` |
 | PUT | `/api/labels/{id}` | `{name?, color?}` |
 | DELETE | `/api/labels/{id}` | снимается со всех карточек |
@@ -445,6 +446,12 @@ Frontend:
 
 Не забыть: любая мутация обязана закончиться `sync()`, иначе другие клиенты не увидят изменение;
 новое серверное событие о карточке — добавить в `EventRepo::KINDS` и логировать через `EventRepo::log()`.
+Событие должно нести данные в `payload`, а не только `kind`: панель строит текст из payload
+(`card.moved` → `from`/`to`, `card.updated` → `fields`, метки → `labels`). Значение `kind` без
+payload рендерится общим «изменил(а) карточку».
+
+Удаляющие методы репозиториев (`BoardRepo::deleteComment`, `ChecklistRepo::update/delete`)
+возвращают `card_id`: строка уже удалена, и без этого id залогировать событие не в ту карточку.
 
 ## 11. Известные ограничения и ловушки
 
@@ -462,6 +469,8 @@ Frontend:
 | SPA fallback | Любой не-`/api` путь отдаёт `index.html`; `/assets/*` при промахе отдаёт 404, а не SPA. |
 | Ошибки WS не ретраятся на сервере | Клиент переподключается с backoff 1.5 с → 30 с и заново получает снапшот при `Open`. |
 | Drag & drop при фильтрах | При активном фильтре/сортировке dnd выключен намеренно: иначе `/api/cards/order` сохранит неполный порядок. |
+| Ширина статус-пилюли | Текст статуса — часть одной пилюли в `TopBar`, а не отдельный бейдж: три подписи разной ширины (126/147/153 px) двигали «Метки»/«Архив». Держать `min-width` и не добавлять второй элемент в ряд. |
+| `wsState` — сырой статус | Показывать в UI только через `useStableStatus`: `connecting → open` при загрузке и `closed → connecting` при реконнекте мигают. Логика reconnect/backoff читает сырой `wsState`. |
 | Прав нет | Любой авторизованный может удалить любую колонку/карточку/комментарий/метку. |
 | `APP_SECRET` | По умолчанию `kanban-csrf-secret`; менять в продакшене, иначе CSRF-подпись предсказуема. |
 | apt в Docker-сборке | В части окружений заблокирован HTTP (порт 80): sources.list принудительно переводится на `https://` перед `apt-get update`. Не убирать этот шаг. |

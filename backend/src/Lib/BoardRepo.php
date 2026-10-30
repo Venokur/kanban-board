@@ -500,6 +500,25 @@ final class BoardRepo
         });
     }
 
+    /** Current label ids of a card, in label order. Used to diff label changes
+     *  after an update so the activity trail can record attached/detached.
+     *
+     * @return array<int,int>
+     */
+    public static function cardLabelIds(int $id): array
+    {
+        $rows = Db::query(
+            'SELECT cl.label_id
+               FROM card_labels cl
+               JOIN labels l ON l.id = cl.label_id
+              WHERE cl.card_id = ?
+              ORDER BY l.position, l.id',
+            [$id],
+        );
+
+        return array_map(static fn(array $row): int => (int)$row['label_id'], $rows);
+    }
+
     public static function deleteCard(int $id): void
     {
         $boardId = self::boardId();
@@ -622,24 +641,44 @@ final class BoardRepo
 
     /**
      * Persist full card ordering (after drag & drop).
+     *
+     * Returns one entry per card that actually changed column, so the
+     * controller can record a `card.moved` event: reordering inside the same
+     * column is not a move and must not show up in the activity trail.
+     *
      * @param array<int,array{id:int,cards:array<int>}> $columns
+     * @return array<int,array{cardId:int,fromId:int,fromTitle:string,toId:int,toTitle:string}>
      */
-    public static function orderCards(array $columns): void
+    public static function orderCards(array $columns): array
     {
         $boardId = self::boardId();
-        Db::transaction(static function ($conn) use ($columns, $boardId): void {
+        /** @var array<int,array{cardId:int,fromId:int,fromTitle:string,toId:int,toTitle:string}> $moved */
+        $moved = [];
+        Db::transaction(static function ($conn) use ($columns, $boardId, &$moved): void {
             foreach ($columns as $item) {
                 $columnId = (int)($item['id'] ?? 0);
                 $column = Db::connQueryOne(
                     $conn,
-                    'SELECT id FROM columns WHERE id = ? AND board_id = ?',
+                    'SELECT id, title FROM columns WHERE id = ? AND board_id = ?',
                     [$columnId, $boardId],
                 );
                 if ($column === null) {
                     throw new HttpException(404, 'Колонка не найдена');
                 }
+                $columnTitle = (string)($column['title'] ?? '');
                 $cardIds = array_values(array_map('intval', $item['cards'] ?? []));
                 foreach ($cardIds as $index => $cardId) {
+                    // Read the current column first: that is the only way to
+                    // tell a move from a reorder within one column.
+                    $before = Db::connQueryOne(
+                        $conn,
+                        'SELECT c.column_id, col.title AS column_title
+                           FROM cards c
+                           JOIN columns col ON col.id = c.column_id
+                          WHERE c.id = ? AND col.board_id = ?
+                            AND c.archived_at IS NULL AND c.deleted_at IS NULL',
+                        [$cardId, $boardId],
+                    );
                     Db::connExec(
                         $conn,
                         'UPDATE cards
@@ -647,9 +686,20 @@ final class BoardRepo
                           WHERE id = ? AND archived_at IS NULL AND deleted_at IS NULL',
                         [$index + 1, $columnId, $cardId],
                     );
+                    if ($before !== null && (int)$before['column_id'] !== $columnId) {
+                        $moved[] = [
+                            'cardId' => $cardId,
+                            'fromId' => (int)$before['column_id'],
+                            'fromTitle' => (string)($before['column_title'] ?? ''),
+                            'toId' => $columnId,
+                            'toTitle' => $columnTitle,
+                        ];
+                    }
                 }
             }
         });
+
+        return $moved;
     }
 
     private static function requireCardOn($conn, int $id, int $boardId): void
@@ -702,13 +752,17 @@ final class BoardRepo
         return array_map(static fn(array $row): array => self::commentShape($row), $rows);
     }
 
-    public static function deleteComment(int $id): void
+    /**
+     * @return int card id the comment belonged to
+     */
+    public static function deleteComment(int $id): int
     {
         $boardId = self::boardId();
-        Db::transaction(static function ($conn) use ($id, $boardId): void {
+        $cardId = 0;
+        Db::transaction(static function ($conn) use ($id, $boardId, &$cardId): void {
             $exists = Db::connQueryOne(
                 $conn,
-                'SELECT cm.id FROM comments cm
+                'SELECT cm.id, cm.card_id FROM comments cm
                    JOIN cards c ON c.id = cm.card_id
                    JOIN columns col ON col.id = c.column_id
                   WHERE cm.id = ? AND col.board_id = ?',
@@ -717,7 +771,10 @@ final class BoardRepo
             if ($exists === null) {
                 throw new HttpException(404, 'Комментарий не найден');
             }
+            $cardId = (int)$exists['card_id'];
             Db::connExec($conn, 'DELETE FROM comments WHERE id = ?', [$id]);
         });
+
+        return $cardId;
     }
 }

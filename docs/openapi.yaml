@@ -434,6 +434,10 @@ paths:
     post:
       tags: [Cards]
       summary: Persist the card order after drag & drop
+      description: |
+        Full board order in one request. Every card that changes column also
+        gets a `card.moved` event in its activity trail; reordering within the
+        same column is not logged.
       requestBody:
         required: true
         content:
@@ -497,7 +501,19 @@ paths:
     get:
       tags: [Cards]
       summary: Card activity timeline
-      description: Newest first, capped server-side.
+      description: |
+        Newest first, capped server-side.
+
+        `card.moved` is recorded only when a card actually changes column —
+        reordering inside one column is not a move. `card.updated` carries the
+        changed field names in `payload.fields`, label changes arrive as
+        `label.attached` / `label.detached` with `payload.labels` (names), and
+        `checklist.updated` carries `payload.done`.
+
+        Cards that predate the event log (including the seed data) have no
+        stored `card.created` row; the timeline synthesises one from
+        `cards.created_at` so the creation date is always shown. That synthetic
+        entry has `id: 0` (real ids start at 1).
       responses:
         '200':
           description: Events

@@ -1,14 +1,65 @@
 <template>
   <section class="column" :class="{ 'has-accent': !!column.accent, 'is-over': overLimit }">
     <header class="column-header">
-      <span
-        class="column-grip"
-        v-tooltip="store.dragDisabled ? 'Снимите фильтр, чтобы менять порядок' : 'Перетащите колонку'"
-        aria-hidden="true"
-      >
-        <SvgIcon name="grip" :size="14" />
-      </span>
+      <!-- Row 1: drag handle on the left, actions on the right. Keeping the
+           actions on their own row leaves the whole width to the title below;
+           in a single row five 30px buttons squeezed it down to ~52px and the
+           title wrapped one letter per line. -->
+      <div class="column-head-top">
+        <span
+          class="column-grip"
+          v-tooltip="store.dragDisabled ? 'Снимите фильтр, чтобы менять порядок' : 'Перетащите колонку'"
+          aria-hidden="true"
+        >
+          <SvgIcon name="grip" :size="14" />
+        </span>
 
+        <div class="column-head-actions" :class="{ open: editing }">
+          <button
+            class="icon-btn move-btn"
+            aria-label="Переместить колонку влево"
+            v-tooltip="'Переместить влево'"
+            @click="move(-1)"
+          >
+            <SvgIcon name="chevron-left" :size="15" />
+          </button>
+          <button
+            class="icon-btn move-btn"
+            aria-label="Переместить колонку вправо"
+            v-tooltip="'Переместить вправо'"
+            @click="move(1)"
+          >
+            <SvgIcon name="chevron-right" :size="15" />
+          </button>
+          <button
+            class="icon-btn"
+            aria-label="Настроить колонку"
+            v-tooltip="'Настроить колонку'"
+            :disabled="editing"
+            @click="openSettings"
+          >
+            <SvgIcon name="sliders" :size="15" />
+          </button>
+          <button
+            class="icon-btn"
+            aria-label="Переименовать колонку"
+            v-tooltip="'Переименовать'"
+            @click="startEdit"
+          >
+            <SvgIcon name="pencil" :size="15" />
+          </button>
+          <button
+            class="icon-btn icon-btn--danger"
+            aria-label="Удалить колонку"
+            v-tooltip="'Удалить колонку'"
+            @click="remove"
+          >
+            <SvgIcon name="trash" :size="15" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Row 2: title and card counter, using the full column width. -->
       <div class="column-head-main">
         <template v-if="editing">
           <input
@@ -32,50 +83,6 @@
             {{ cardCount }}<template v-if="column.wipLimit">/{{ column.wipLimit }}</template>
           </span>
         </template>
-      </div>
-
-      <div class="column-head-actions" :class="{ open: editing }">
-        <button
-          class="icon-btn move-btn"
-          aria-label="Переместить колонку влево"
-          v-tooltip="'Переместить влево'"
-          @click="move(-1)"
-        >
-          <SvgIcon name="chevron-left" :size="15" />
-        </button>
-        <button
-          class="icon-btn move-btn"
-          aria-label="Переместить колонку вправо"
-          v-tooltip="'Переместить вправо'"
-          @click="move(1)"
-        >
-          <SvgIcon name="chevron-right" :size="15" />
-        </button>
-        <button
-          class="icon-btn"
-          aria-label="Настроить колонку"
-          v-tooltip="'Настроить колонку'"
-          :disabled="editing"
-          @click="openSettings"
-        >
-          <SvgIcon name="sliders" :size="15" />
-        </button>
-        <button
-          class="icon-btn"
-          aria-label="Переименовать колонку"
-          v-tooltip="'Переименовать'"
-          @click="startEdit"
-        >
-          <SvgIcon name="pencil" :size="15" />
-        </button>
-        <button
-          class="icon-btn icon-btn--danger"
-          aria-label="Удалить колонку"
-          v-tooltip="'Удалить колонку'"
-          @click="remove"
-        >
-          <SvgIcon name="trash" :size="15" />
-        </button>
       </div>
     </header>
 
@@ -276,9 +283,15 @@ async function move(dir) {
 }
 .column-header {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 6px 8px;
+}
+.column-head-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px;
-  padding: 12px 10px 6px 8px;
 }
 .column-grip {
   flex: none;
@@ -287,11 +300,10 @@ async function move(dir) {
   justify-content: center;
   width: 18px;
   height: 24px;
-  margin-top: 1px;
   border-radius: var(--radius-s);
   color: var(--text-3);
   cursor: grab;
-  opacity: 0;
+  opacity: 0.5;
   transition: opacity 0.13s ease, background 0.13s ease;
 }
 .column:hover .column-grip {
@@ -305,7 +317,6 @@ async function move(dir) {
   cursor: grabbing;
 }
 .column-head-main {
-  flex: 1;
   min-width: 0;
   display: flex;
   align-items: flex-start;
@@ -323,7 +334,7 @@ async function move(dir) {
 }
 .column-count {
   flex: none;
-  margin-top: 3px;
+  margin-top: 0;
   padding: 0 7px;
   min-width: 20px;
   height: 20px;
@@ -358,17 +369,9 @@ async function move(dir) {
   align-items: center;
   gap: 1px;
   flex: none;
-  margin-top: -2px;
-  opacity: 0;
-  transition: opacity 0.13s ease;
-}
-.column:hover .column-head-actions,
-.column-head-actions.open,
-.column-head-actions:focus-within {
-  opacity: 1;
 }
 .move-btn {
-  opacity: 0.55;
+  color: var(--text-3);
 }
 
 /* ---------- settings ---------- */
@@ -452,8 +455,7 @@ async function move(dir) {
   .column {
     width: 86vw;
   }
-  .column-grip,
-  .column-head-actions {
+  .column-grip {
     opacity: 1;
   }
 }

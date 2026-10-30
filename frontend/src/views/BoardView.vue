@@ -1,68 +1,11 @@
 <template>
   <div class="board-view">
-    <TopBar />
-
     <div class="board-body">
       <div class="blob blob--violet" />
       <div class="blob blob--sky" />
       <div class="blob blob--mint" />
 
-      <header class="board-header">
-        <div class="board-heading">
-          <span class="board-mark">
-            <SvgIcon name="board" :size="20" />
-          </span>
-          <div class="board-titles">
-            <input
-              v-if="editingName"
-              ref="nameEl"
-              v-model="nameDraft"
-              class="board-title-input"
-              maxlength="80"
-              aria-label="Название доски"
-              @keydown.enter.prevent="saveName"
-              @keydown.esc="cancelName"
-              @blur="saveName"
-            />
-            <div v-else class="board-title-row">
-              <h1
-                class="board-title"
-                v-tooltip="'Двойной клик — переименовать'"
-                @dblclick="startEditName"
-              >
-                {{ store.boardName || 'Доска' }}
-              </h1>
-              <button
-                class="icon-btn"
-                aria-label="Переименовать доску"
-                v-tooltip="'Переименовать доску'"
-                @click="startEditName"
-              >
-                <SvgIcon name="pencil" :size="14" />
-              </button>
-            </div>
-            <span class="board-subtitle">{{ summary }}</span>
-          </div>
-
-          <div class="board-badges">
-            <span class="badge" :class="wsTone" v-tooltip="wsHint">
-              <span class="dot" />
-              {{ wsLabel }}
-            </span>
-            <span v-if="store.saving" class="badge badge--ghost">
-              <span class="spinner" /> сохранение
-            </span>
-            <button class="btn btn--ghost btn--xs" @click="ui.openLabels()">
-              <SvgIcon name="palette" :size="14" />
-              Метки
-            </button>
-            <button class="btn btn--ghost btn--xs" @click="openArchive">
-              <SvgIcon name="archive" :size="14" />
-              Архив
-            </button>
-          </div>
-        </div>
-      </header>
+      <TopBar @open-archive="openArchive" />
 
       <BoardFilters ref="filtersEl" />
 
@@ -110,12 +53,11 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import draggable from 'vuedraggable'
 import { useBoardStore } from '../stores/board'
 import { useUiStore } from '../stores/ui'
-import { wsState, wsWatch } from '../api/ws'
-import { plural } from '../utils/time'
+import { wsWatch } from '../api/ws'
 import TopBar from '../components/board/TopBar.vue'
 import BoardFilters from '../components/board/BoardFilters.vue'
 import Column from '../components/board/Column.vue'
@@ -125,7 +67,6 @@ import ArchivePanel from '../components/board/ArchivePanel.vue'
 import LabelManager from '../components/board/LabelManager.vue'
 import CommandPalette from '../components/board/CommandPalette.vue'
 import ShortcutsDialog from '../components/board/ShortcutsDialog.vue'
-import SvgIcon from '../components/SvgIcon.vue'
 
 const store = useBoardStore()
 const ui = useUiStore()
@@ -142,44 +83,7 @@ const visibleById = computed(() => {
 
 const activeCard = ref(null)
 const archiveOpen = ref(false)
-const editingName = ref(false)
-const nameDraft = ref('')
-const nameEl = ref(null)
 const filtersEl = ref(null)
-
-const summary = computed(() => {
-  const cards = store.totalCards
-  const parts = []
-  if (store.columns.length) {
-    parts.push(plural(store.columns.length, 'колонка', 'колонки', 'колонок'))
-  }
-  if (cards) parts.push(plural(cards, 'задача', 'задачи', 'задач'))
-  if (store.filtersActive) {
-    parts.push(`фильтр${store.hiddenCards ? `: скрыто ${store.hiddenCards}` : ''}`)
-  }
-  return parts.join(' · ')
-})
-
-const wsLabel = computed(() => {
-  if (wsState.status === 'open') return 'синхронизировано'
-  if (wsState.status === 'connecting') return 'подключение…'
-  return 'переподключение…'
-})
-const wsTone = computed(() => ({ on: wsState.status === 'open' }))
-const wsHint = computed(() =>
-  wsState.status === 'open'
-    ? 'Изменения приходят в реальном времени'
-    : `Соединение потеряно, повтор через ${wsState.retryIn || 1} с`,
-)
-
-// Document title reflects the board name (tab title, history, bookmarks).
-watch(
-  () => store.boardName,
-  (name) => {
-    document.title = name ? `${name} · Kanban` : 'Kanban'
-  },
-  { immediate: true },
-)
 
 function openCard(card) {
   activeCard.value = card
@@ -189,29 +93,6 @@ watch(activeCard, (card) => wsWatch(card ? card.id : null))
 
 function openArchive() {
   archiveOpen.value = true
-}
-
-async function startEditName() {
-  nameDraft.value = store.boardName
-  editingName.value = true
-  await nextTick()
-  nameEl.value && nameEl.value.select()
-}
-
-async function saveName() {
-  if (!editingName.value) return
-  editingName.value = false
-  const name = nameDraft.value.trim()
-  if (!name || name === store.boardName) return
-  try {
-    await store.renameBoard(name)
-  } catch (e) {
-    /* toast shows the error */
-  }
-}
-
-function cancelName() {
-  editingName.value = false
 }
 
 async function onColumnsReordered() {
@@ -344,99 +225,6 @@ onBeforeUnmount(() => {
   opacity: 0.35;
 }
 
-.board-header {
-  padding: 20px 22px 14px;
-  position: relative;
-  z-index: 1;
-}
-.board-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.board-mark {
-  width: 42px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  background: var(--accent-grad);
-  color: #fff;
-  box-shadow: 0 8px 18px -6px rgba(108, 92, 231, 0.7);
-}
-.board-titles {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.board-title-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.board-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  color: var(--text);
-  letter-spacing: -0.3px;
-  cursor: text;
-  overflow-wrap: anywhere;
-}
-.board-title-input {
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.3px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-s);
-  padding: 2px 8px;
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.16);
-}
-.board-subtitle {
-  font-size: 13px;
-  color: var(--text-2);
-  font-weight: 500;
-}
-.board-badges {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--glass);
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: 0 2px 8px -4px rgba(32, 38, 59, 0.2);
-  backdrop-filter: blur(6px);
-}
-.badge--ghost {
-  background: var(--surface-2);
-  box-shadow: none;
-}
-.badge .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f0a928;
-}
-.badge.on .dot {
-  background: var(--success);
-  box-shadow: 0 0 0 3px rgba(48, 164, 108, 0.2);
-}
-
 .board-scroll {
   flex: 1;
   min-height: 0;
@@ -481,16 +269,6 @@ onBeforeUnmount(() => {
 
 /* ---------- narrow screens: one column, snap scrolling ---------- */
 @media (max-width: 768px) {
-  .board-header {
-    padding: 14px 14px 10px;
-  }
-  .board-title {
-    font-size: 19px;
-  }
-  .board-mark {
-    width: 36px;
-    height: 36px;
-  }
   .board-scroll {
     scroll-snap-type: x mandatory;
   }
@@ -503,9 +281,6 @@ onBeforeUnmount(() => {
   }
   .board-canvas > * {
     scroll-snap-align: start;
-  }
-  .board-badges {
-    width: 100%;
   }
   .column-skeleton {
     width: 86vw;

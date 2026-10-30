@@ -364,6 +364,21 @@ const cardsFolder = {
         '});',
       ],
     }),
+    req('Move card to another column', 'POST', '/api/cards/order', {
+      body: { columns: [] },
+      description:
+        'Moves the fixture card into a different column. The pre-request script rebuilds the order from the live snapshot; a real column change must produce a `card.moved` event (an in-column reorder must not).',
+      tests: [
+        "pm.test('200 OK with snapshot', () => pm.response.to.have.status(200));",
+        "const id = Number(pm.collectionVariables.get('cardId'));",
+        "const target = Number(pm.collectionVariables.get('moveTargetId'));",
+        "const column = pm.response.json().columns.find((c) => c.cards.some((card) => card.id === id));",
+        "pm.test('card sits in the target column', () => {",
+        '  pm.expect(column).to.be.an("object");',
+        "  pm.expect(column.id).to.eql(target);",
+        '});',
+      ],
+    }),
     req('Archive card', 'POST', '/api/cards/{{cardId}}/archive', {
       tests: [
         "pm.test('200 OK with snapshot', () => pm.response.to.have.status(200));",
@@ -400,6 +415,13 @@ const cardsFolder = {
         '  pm.expect(kinds).to.include("card.archived");',
         '  pm.expect(kinds).to.include("card.restored");',
         '});',
+        "pm.test('a cross-column move was recorded with both columns', () => {",
+        '  const moved = body.events.filter((e) => e.kind === "card.moved");',
+        '  pm.expect(moved.length).to.eql(1);',
+        '  pm.expect(moved[0].payload.to).to.be.a("string").and.not.empty;',
+        '  pm.expect(moved[0].payload.from).to.be.a("string").and.not.empty;',
+        '  pm.expect(moved[0].payload.toId).to.eql(Number(pm.collectionVariables.get("moveTargetId")));',
+        '});',
       ],
     }),
   ],
@@ -420,6 +442,32 @@ cardsFolder.item[3].event = [
     },
   },
   ...cardsFolder.item[3].event,
+]
+
+// A real cross-column move: find a column that does not hold the fixture card
+// yet, then rebuild the order so the card lands at the end of it.
+cardsFolder.item[4].event = [
+  {
+    listen: 'prerequest',
+    script: {
+      type: 'text/javascript',
+      exec: [
+        "const cardId = Number(pm.collectionVariables.get('cardId'));",
+        "const columns = JSON.parse(pm.collectionVariables.get('cardsOrderJson') || '[]');",
+        'const source = columns.find((c) => c.cards.includes(cardId));',
+        'const target = columns.find((c) => !c.cards.includes(cardId));',
+        "if (!source || !target) throw new Error('need two columns to test a move');",
+        "pm.collectionVariables.set('moveTargetId', String(target.id));",
+        'const next = columns.map((c) => {',
+        '  if (c.id === source.id) return { id: c.id, cards: c.cards.filter((id) => id !== cardId) };',
+        '  if (c.id === target.id) return { id: c.id, cards: [...c.cards, cardId] };',
+        '  return { id: c.id, cards: c.cards };',
+        '});',
+        "pm.request.body = { mode: 'raw', raw: JSON.stringify({ columns: next }) };",
+      ],
+    },
+  },
+  ...(cardsFolder.item[4].event || []),
 ]
 
 const labelsFolder = {

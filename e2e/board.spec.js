@@ -79,6 +79,19 @@ test.describe('columns and cards', () => {
     await panel.getByRole('checkbox').first().click()
     await expect(panel.getByRole('checkbox').first()).toHaveAttribute('aria-checked', 'true')
 
+    // Un-ticking used to answer 500: the driver sent PHP `false` as '' and
+    // PostgreSQL rejected it for the boolean column.
+    await panel.getByRole('checkbox').first().click()
+    await expect(panel.getByRole('checkbox').first()).toHaveAttribute('aria-checked', 'false')
+
+    // The change must reach the database, not just the local store.
+    const persisted = await page.evaluate(async (title) => {
+      const board = await (await fetch('/api/board')).json()
+      const card = board.columns.flatMap((c) => c.cards).find((c) => c.title === title)
+      return card ? card.checklist.map((i) => i.done) : null
+    }, cardTitle)
+    expect(persisted).toEqual([false])
+
     const comment = panel.getByLabel('Новый комментарий')
     await comment.fill('Проверочный комментарий')
     // Scope to the comment composer: the checklist also has a «Добавить» button.

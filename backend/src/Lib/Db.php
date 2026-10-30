@@ -251,7 +251,26 @@ final class Db
         if ($index !== count($params)) {
             throw new RuntimeException('Количество параметров не совпадает с числом placeholder-ов');
         }
-        return [$out, $params];
+        return [$out, array_map([self::class, 'param'], $params)];
+    }
+
+    /**
+     * Normalise a bound value for the prepared path.
+     *
+     * The OpenSwoole client stringifies every argument before sending it, and
+     * PHP `false` becomes the empty string — which PostgreSQL rejects for a
+     * boolean column (`invalid input syntax for type boolean: ""`). Only `true`
+     * survived, so un-ticking a checklist item returned a 500 while ticking it
+     * worked. `true`/`false` literals are valid input for booleans and harmless
+     * for text/numeric columns, and they match what quote() already emits on
+     * the inline path.
+     */
+    public static function param(mixed $value): mixed
+    {
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+        return $value;
     }
 
     /**

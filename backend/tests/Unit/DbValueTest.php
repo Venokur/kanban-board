@@ -58,4 +58,31 @@ final class DbValueTest extends TestCase
         self::assertSame('NULL', Db::placeholders([], $params));
         self::assertSame([], $params);
     }
+
+    /**
+     * @return array<string,array{0:mixed,1:mixed}>
+     */
+    public static function paramProvider(): array
+    {
+        return [
+            'true' => [true, 'true'],
+            'false' => [false, 'false'],
+            'int unchanged' => [42, 42],
+            'zero unchanged' => [0, 0],
+            'null unchanged' => [null, null],
+            'string unchanged' => ['abc', 'abc'],
+            'empty string unchanged' => ['', ''],
+            'float unchanged' => [1.5, 1.5],
+        ];
+    }
+
+    /**
+     * The driver turns PHP `false` into an empty string, which is not a valid
+     * boolean literal — un-ticking a checklist item used to fail with a 500.
+     */
+    #[DataProvider('paramProvider')]
+    public function testParamNormalisesBooleansOnly(mixed $value, mixed $expected): void
+    {
+        self::assertSame($expected, Db::param($value));
+    }
 }

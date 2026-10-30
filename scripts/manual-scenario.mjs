@@ -211,6 +211,13 @@ await panel.getByRole('checkbox', { name: 'Снять отметку' }).waitFor
 card = (await state(a)).columns.flatMap((c) => c.cards).find((c) => c.title === newTitle)
 check('checklist item added and ticked', card && card.checklist.length === 1 && card.checklist[0].done)
 
+// Un-ticking goes through a boolean `false` parameter; it used to 500.
+await panel.getByRole('checkbox', { name: 'Снять отметку' }).click()
+await panel.getByRole('checkbox', { name: 'Отметить выполненным' }).waitFor()
+await a.waitForTimeout(600)
+card = (await state(a)).columns.flatMap((c) => c.cards).find((c) => c.title === newTitle)
+check('checklist item un-ticked', card && card.checklist.length === 1 && card.checklist[0].done === false)
+
 // History
 await panel.getByRole('button', { name: 'Обновить историю' }).click()
 await a.waitForTimeout(900)

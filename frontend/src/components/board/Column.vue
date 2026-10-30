@@ -123,6 +123,7 @@
         ghost-class="card-ghost"
         drag-class="card-dragging"
         :force-fallback="true"
+        :fallback-on-body="true"
         :disabled="store.dragDisabled"
         @end="emit('cardsOrdered')"
       >

@@ -76,5 +76,19 @@ test.describe('keyboard and command palette', () => {
     const panel = page.getByRole('dialog', { name: 'Карточка' })
     await panel.getByRole('button', { name: 'В архив' }).click()
     await expect(page.getByText(title, { exact: true })).toHaveCount(0)
+
+    // Archiving only hides the card: delete it for good, otherwise every run
+    // leaves another row behind in the archive.
+    await page.evaluate(async (cardTitle) => {
+      const csrf = document.cookie
+        .split(';')
+        .map((c) => c.trim())
+        .find((c) => c.startsWith('kb_csrf='))
+      const headers = { 'Content-Type': 'application/json' }
+      if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf.split('=')[1])
+      const archived = await (await fetch('/api/board/archive', { headers })).json()
+      const card = (archived.cards || []).find((c) => c.title === cardTitle)
+      if (card) await fetch(`/api/cards/${card.id}`, { method: 'DELETE', headers })
+    }, title)
   })
 })

@@ -32,6 +32,7 @@ services:
       APP_PORT: 9501
       APP_DEBUG: ${APP_DEBUG:-0}
       APP_SECRET: ${APP_SECRET:-kanban-csrf-secret}
+      APP_DEMO: ${APP_DEMO:-1}
       APP_HTTPS: ${APP_HTTPS:-0}
       APP_LEGACY_TOKEN: ${APP_LEGACY_TOKEN:-0}
       APP_WS_QUERY_TOKEN: ${APP_WS_QUERY_TOKEN:-0}

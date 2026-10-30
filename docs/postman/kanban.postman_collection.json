@@ -149,6 +149,42 @@
           ]
         },
         {
+          "name": "Config",
+          "description": "Public flags for the login page: whether the demo account is usable and whether `APP_SECRET` is still a shipped placeholder. Secrets are never returned.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "config"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('demo flag is a boolean', () => pm.expect(body.demo).to.be.a('boolean'));",
+                  "pm.test('defaultSecret flag is a boolean', () => pm.expect(body.defaultSecret).to.be.a('boolean'));",
+                  "pm.test('the secret itself is not exposed', () => {",
+                  "  pm.expect(body).to.not.have.property('secret');",
+                  "  pm.expect(JSON.stringify(body)).to.not.include('kanban-csrf-secret');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Login (demo)",
           "description": "Starts a session: sets an HttpOnly `kb_session` cookie plus a readable `kb_csrf` cookie, and returns the CSRF token.",
           "request": {

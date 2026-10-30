@@ -65,6 +65,31 @@ paths:
                     type: string
                     examples: [OpenSwoole]
 
+  /api/config:
+    get:
+      tags: [Auth]
+      summary: Public deployment flags for the login page
+      description: |
+        Unauthenticated, like `/api/health`. Tells the login page whether the demo
+        account can be used and whether `APP_SECRET` is still a value shipped in
+        the repository. The secret itself is never returned.
+      security: []
+      responses:
+        '200':
+          description: Deployment flags
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [demo, defaultSecret]
+                properties:
+                  demo:
+                    type: boolean
+                    description: '`APP_DEMO` is on, so the demo account and the quick-login button are usable.'
+                  defaultSecret:
+                    type: boolean
+                    description: '`APP_SECRET` is unset or still `kanban-csrf-secret` / `change-me-please`.'
+
   /api/register:
     post:
       tags: [Auth]

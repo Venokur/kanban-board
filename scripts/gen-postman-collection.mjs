@@ -143,6 +143,20 @@ const authFolder = {
         "pm.test('runtime reported', () => pm.expect(body.runtime).to.be.a('string').and.not.empty);",
       ],
     }),
+    req('Config', 'GET', '/api/config', {
+      description:
+        'Public flags for the login page: whether the demo account is usable and whether `APP_SECRET` is still a shipped placeholder. Secrets are never returned.',
+      tests: [
+        "pm.test('200 OK', () => pm.response.to.have.status(200));",
+        'const body = pm.response.json();',
+        "pm.test('demo flag is a boolean', () => pm.expect(body.demo).to.be.a('boolean'));",
+        "pm.test('defaultSecret flag is a boolean', () => pm.expect(body.defaultSecret).to.be.a('boolean'));",
+        "pm.test('the secret itself is not exposed', () => {",
+        "  pm.expect(body).to.not.have.property('secret');",
+        "  pm.expect(JSON.stringify(body)).to.not.include('kanban-csrf-secret');",
+        '});',
+      ],
+    }),
     req('Login (demo)', 'POST', '/api/login', {
       body: { email: 'demo@kanban.local', password: 'demo1234' },
       description:

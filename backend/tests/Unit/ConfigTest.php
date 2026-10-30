@@ -14,7 +14,7 @@ final class ConfigTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['TEST_STR', 'TEST_BOOL'] as $key) {
+        foreach (['TEST_STR', 'TEST_BOOL', 'APP_DEMO', 'APP_SECRET'] as $key) {
             $this->saved[$key] = getenv($key);
         }
     }
@@ -69,5 +69,51 @@ final class ConfigTest extends TestCase
             self::assertArrayHasKey($key, $db);
             self::assertIsString($db[$key]);
         }
+    }
+
+    public function testDemoIsEnabledWhenUnset(): void
+    {
+        putenv('APP_DEMO');
+        self::assertTrue(Config::demoEnabled());
+    }
+
+    public function testDemoCanBeSwitchedOff(): void
+    {
+        putenv('APP_DEMO=0');
+        self::assertFalse(Config::demoEnabled());
+    }
+
+    public function testDemoStaysOnForTruthyValues(): void
+    {
+        foreach (['1', 'true', 'yes', 'on'] as $value) {
+            putenv('APP_DEMO=' . $value);
+            self::assertTrue(Config::demoEnabled(), $value);
+        }
+    }
+
+    public function testAppSecretFallsBackToTheComposeDefault(): void
+    {
+        putenv('APP_SECRET');
+        self::assertSame(Config::DEFAULT_SECRET, Config::appSecret());
+        putenv('APP_SECRET=');
+        self::assertSame(Config::DEFAULT_SECRET, Config::appSecret());
+    }
+
+    public function testAppSecretIsDefaultForEveryShippedPlaceholder(): void
+    {
+        putenv('APP_SECRET');
+        self::assertTrue(Config::appSecretIsDefault());
+
+        foreach (['kanban-csrf-secret', 'change-me-please'] as $secret) {
+            putenv('APP_SECRET=' . $secret);
+            self::assertTrue(Config::appSecretIsDefault(), $secret);
+        }
+    }
+
+    public function testAppSecretIsNotDefaultForACustomValue(): void
+    {
+        putenv('APP_SECRET=a-real-secret');
+        self::assertSame('a-real-secret', Config::appSecret());
+        self::assertFalse(Config::appSecretIsDefault());
     }
 }

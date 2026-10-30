@@ -15,12 +15,20 @@ use App\Rt\Response;
 
 final class AuthController
 {
+    /**
+     * Seeded in init.sql. The address is blocked outright when APP_DEMO=0 —
+     * hiding the button on /login would not stop a manual form submission.
+     */
+    public const DEMO_EMAIL = 'demo@kanban.local';
+
     public static function register(Request $request, Response $response, array $params): array
     {
         $body = Http::body($request);
         $name = Http::requireString($body, 'name', 80);
         $email = strtolower(Http::requireString($body, 'email', 254));
         $password = Http::requireString($body, 'password', 128, false);
+
+        self::rejectDemoEmail($email);
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new HttpException(422, 'Некорректный email');
@@ -54,6 +62,9 @@ final class AuthController
         $email = strtolower(Http::requireString($body, 'email', 254));
         $password = Http::requireString($body, 'password', 128, false);
 
+        // Before any DB access, so the answer cannot reveal whether the account exists.
+        self::rejectDemoEmail($email);
+
         $key = 'login|' . self::clientIp($request) . '|' . $email;
         if (RateLimit::tooMany($key)) {
             throw new HttpException(429, 'Слишком много попыток. Повторите через '
@@ -85,6 +96,21 @@ final class AuthController
     public static function me(Request $request, Response $response, array $params): array
     {
         return ['user' => Auth::currentUser($request)];
+    }
+
+    /**
+     * Public, unauthenticated: the login page needs to know whether the demo
+     * account is usable before anyone has a session. Returns flags only — never
+     * the secret itself.
+     *
+     * @return array{demo:bool,defaultSecret:bool}
+     */
+    public static function publicConfig(Request $request, Response $response, array $params): array
+    {
+        return [
+            'demo'          => Config::demoEnabled(),
+            'defaultSecret' => Config::appSecretIsDefault(),
+        ];
     }
 
     /**
@@ -162,5 +188,17 @@ final class AuthController
             throw new HttpException(429, 'Слишком много попыток. Повторите позже.');
         }
         RateLimit::hit($key);
+    }
+
+    /**
+     * Refuse the seeded demo address on both login and register while the demo
+     * is switched off. Registering matters too: once the demo user is deleted,
+     * anyone could otherwise claim the address with their own password.
+     */
+    private static function rejectDemoEmail(string $email): void
+    {
+        if ($email === self::DEMO_EMAIL && !Config::demoEnabled()) {
+            throw new HttpException(403, 'Демо-доступ отключён');
+        }
     }
 }

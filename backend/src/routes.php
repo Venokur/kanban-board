@@ -14,6 +14,9 @@ return static function (): Router {
     $router->add('POST', '/api/login', fn($req, $res, $p) => AuthController::login($req, $res, $p));
     $router->add('POST', '/api/logout', fn($req, $res, $p) => AuthController::logout($req, $res, $p));
     $router->add('GET', '/api/me', fn($req, $res, $p) => AuthController::me($req, $res, $p));
+    // Public flags for the login page: is the demo account usable, is the CSRF
+    // secret still a shipped placeholder. No session, no secrets in the answer.
+    $router->add('GET', '/api/config', fn($req, $res, $p) => AuthController::publicConfig($req, $res, $p));
 
     // Board
     $router->add('GET', '/api/board', fn($req, $res, $p) => BoardController::board($req, $res, $p));

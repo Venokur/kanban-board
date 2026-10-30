@@ -18,7 +18,7 @@ final class Auth
      */
     public static function csrfToken(string $sessionToken): string
     {
-        return hash_hmac('sha256', $sessionToken, Config::get('APP_SECRET', 'kanban-csrf-secret'));
+        return hash_hmac('sha256', $sessionToken, Config::appSecret());
     }
 
     /**

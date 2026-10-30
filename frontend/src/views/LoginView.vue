@@ -11,6 +11,21 @@
         <p class="tagline">Доска для командной работы и личных задач</p>
       </div>
 
+      <div v-if="config.demo || showSecretNotice" class="notices">
+        <div v-if="config.demo" class="notice">
+          <SvgIcon name="alert" :size="15" />
+          <span>
+            Демо-доступ включён. Перед продакшеном отключите его: <code>APP_DEMO=0</code>.
+          </span>
+        </div>
+        <div v-if="showSecretNotice" class="notice">
+          <SvgIcon name="alert" :size="15" />
+          <span>
+            <code>APP_SECRET</code> не изменён. Задайте собственный секрет перед продакшеном.
+          </span>
+        </div>
+      </div>
+
       <div class="tabs">
         <button class="tab" :class="{ active: mode === 'login' }" @click="mode = 'login'">Вход</button>
         <button class="tab" :class="{ active: mode === 'register' }" @click="mode = 'register'">Регистрация</button>
@@ -75,7 +90,7 @@
         </button>
       </form>
 
-      <div class="demo">
+      <div v-if="config.demo" class="demo">
         <div class="demo-row">
           <div>
             <div class="demo-title">Демо-доступ</div>
@@ -89,9 +104,10 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { http } from '../api/http'
 import SvgIcon from '../components/SvgIcon.vue'
 
 const auth = useAuthStore()
@@ -101,6 +117,27 @@ const mode = ref('login')
 const busy = ref(false)
 const error = ref('')
 const showPassword = ref(false)
+
+/**
+ * Server-side flags. `demo` and `defaultSecret` start as null so nothing flashes
+ * before /api/config answers; if the request fails the demo block stays hidden,
+ * which is only cosmetic — the backend refuses demo sign-in either way.
+ */
+const config = reactive({ demo: null, defaultSecret: null })
+
+// Development only: the built bundle has DEV === false, so this notice can never
+// reach a production deployment.
+const showSecretNotice = computed(() => import.meta.env.DEV && config.defaultSecret === true)
+
+onMounted(async () => {
+  try {
+    const data = await http.get('/api/config')
+    config.demo = data.demo === true
+    config.defaultSecret = data.defaultSecret === true
+  } catch (e) {
+    /* leave both null: no demo block, no false alarm */
+  }
+})
 
 const form = reactive({
   name: '',
@@ -254,6 +291,39 @@ async function quickDemo() {
   margin: 6px 0 0;
   color: var(--text-3);
   font-size: 13px;
+}
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-m);
+}
+.notice :deep(svg) {
+  flex: none;
+  margin-top: 1px;
+}
+.notice code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+[data-theme='dark'] .notice code {
+  background: rgba(255, 255, 255, 0.09);
 }
 .tabs {
   display: flex;

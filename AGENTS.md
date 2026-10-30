@@ -275,6 +275,7 @@ e2e/                         Playwright: auth, board, filters, keyboard, appeara
 | POST | `/api/logout` | удаляет сессию, чистит cookie |
 | GET | `/api/me` | → `{user}` |
 | GET | `/api/health` | `SELECT 1` → `{ok:true, runtime:"OpenSwoole"}` (healthcheck) |
+| GET | `/api/config` | публично → `{demo, defaultSecret}`; флаги для плашек на `/login`, секрет не отдаётся |
 | GET | `/api/board` | полный снапшот |
 | PUT | `/api/board` | `{name}` — переименование доски |
 | GET | `/api/board/archive` | `{cards:[{id,title,columnId,columnTitle,archivedAt}]}` |
@@ -472,7 +473,8 @@ payload рендерится общим «изменил(а) карточку».
 | Ширина статус-пилюли | Текст статуса — часть одной пилюли в `TopBar`, а не отдельный бейдж: три подписи разной ширины (126/147/153 px) двигали «Метки»/«Архив». Держать `min-width` и не добавлять второй элемент в ряд. |
 | `wsState` — сырой статус | Показывать в UI только через `useStableStatus`: `connecting → open` при загрузке и `closed → connecting` при реконнекте мигают. Логика reconnect/backoff читает сырой `wsState`. |
 | Прав нет | Любой авторизованный может удалить любую колонку/карточку/комментарий/метку. |
-| `APP_SECRET` | По умолчанию `kanban-csrf-secret`; менять в продакшене, иначе CSRF-подпись предсказуема. |
+| `APP_SECRET` | По умолчанию `kanban-csrf-secret`; менять в продакшене, иначе CSRF-подпись предсказуема. Единый источник — `Config::appSecret()`, не читать env напрямую. |
+| Демо-аккаунт | Выключается только `APP_DEMO=0` и **проверкой на сервере** (`AuthController::rejectDemoEmail` → 403 в login и register). Скрыть кнопку в UI недостаточно: через форму войдут вручную. Демо-данные при этом остаются. |
 | apt в Docker-сборке | В части окружений заблокирован HTTP (порт 80): sources.list принудительно переводится на `https://` перед `apt-get update`. Не убирать этот шаг. |
 | Сборка расширения | Только на Linux; в рантайм-образ попадает лишь `.so`, поэтому сборочная стадия кэшируется отдельно от кода. |
 | `SWOOLE_VARIANT` | Влияет и на сборку, и на рантайм. Без пересборки образа переменная ничего не меняет. |

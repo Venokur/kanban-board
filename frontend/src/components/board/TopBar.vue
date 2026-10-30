@@ -375,6 +375,12 @@ async function onLogout() {
   border-radius: var(--radius-pill);
   background: var(--surface-2);
 }
+/* The initials are centred in the circle; what looked off was the 6px inset on
+   the left of the pill against 4px on the right. Pull the avatar in, leaving the
+   name and the logout button exactly where they were. */
+.user-chip :deep(.avatar) {
+  margin-left: -3px;
+}
 .user-name {
   font-size: 13px;
   font-weight: 600;

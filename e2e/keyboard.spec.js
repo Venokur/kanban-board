@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { column, login, unique } from './helpers'
+import { column, createCard, createColumn, deleteColumnByTitle, login, unique } from './helpers'
 
 test.describe('keyboard and command palette', () => {
   test('? opens the shortcut cheat sheet and Esc closes it', async ({ page }) => {
@@ -90,5 +90,71 @@ test.describe('keyboard and command palette', () => {
       const card = (archived.cards || []).find((c) => c.title === cardTitle)
       if (card) await fetch(`/api/cards/${card.id}`, { method: 'DELETE', headers })
     }, title)
+  })
+
+  test('opening a card does not focus the title', async ({ page }) => {
+    await login(page)
+
+    const colTitle = unique('Колонка')
+    const cardTitle = unique('Без фокуса')
+
+    await createColumn(page, colTitle)
+    await createCard(page, cardTitle, colTitle)
+
+    try {
+      await page.getByText(cardTitle, { exact: true }).first().click()
+      const panel = page.getByRole('dialog', { name: 'Карточка' })
+      await expect(panel).toBeVisible()
+
+      const titleField = panel.getByLabel('Заголовок карточки')
+      // Opening a card used to put the caret in the title, which looked like
+      // the card had entered edit mode before the user touched anything.
+      await expect(titleField).not.toBeFocused()
+
+      // The dialog itself takes focus, so the Tab trap and Esc keep working.
+      const active = await page.evaluate(() => {
+        const el = document.activeElement
+        return !!(el && el.closest && el.closest('[role="dialog"][aria-label="Карточка"]'))
+      })
+      expect(active).toBe(true)
+
+      // Merely opening the card must not have edited anything.
+      await expect(titleField).toHaveValue(cardTitle)
+    } finally {
+      await page.keyboard.press('Escape')
+      await deleteColumnByTitle(page, colTitle)
+    }
+  })
+
+  test('board shortcuts do not fire behind an open card', async ({ page }) => {
+    await login(page)
+
+    const colTitle = unique('Колонка')
+    const cardTitle = unique('Шорткаты')
+
+    await createColumn(page, colTitle)
+    await createCard(page, cardTitle, colTitle)
+
+    try {
+      await page.getByText(cardTitle, { exact: true }).first().click()
+      const panel = page.getByRole('dialog', { name: 'Карточка' })
+      await expect(panel).toBeVisible()
+
+      const columnsBefore = await page.locator('section.column').count()
+
+      // Focus a button inside the panel: not a typing target, so the global
+      // handler used to act on the board underneath the overlay.
+      await panel.getByRole('button', { name: 'Закрыть карточку' }).focus()
+      await page.keyboard.press('n')
+      await page.keyboard.press('/')
+
+      await expect(panel).toBeVisible()
+      await expect(page.locator('section.column')).toHaveCount(columnsBefore)
+      // «/» must not move focus into the search field behind the overlay.
+      await expect(page.getByRole('searchbox')).not.toBeFocused()
+    } finally {
+      await page.keyboard.press('Escape')
+      await deleteColumnByTitle(page, colTitle)
+    }
   })
 })

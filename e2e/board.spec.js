@@ -39,6 +39,9 @@ test.describe('columns and cards', () => {
 
     const renamed = `${cardTitle} (изм.)`
     const titleField = panel.getByLabel('Заголовок карточки')
+    // Opening the card must not focus the title — it should not look like the
+    // card entered edit mode on its own.
+    await expect(titleField).not.toBeFocused()
     await titleField.fill(renamed)
     await titleField.blur()
     await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()

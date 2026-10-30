@@ -167,4 +167,38 @@ test.describe('column header and sync status', () => {
       await deleteColumnByTitle(page, fromTitle)
     }
   })
+
+  test('the user chip keeps the avatar centred inside the pill', async ({ page }) => {
+    await login(page)
+
+    const chip = page.locator('header.topbar .user-chip')
+    await expect(chip).toBeVisible()
+
+    const metrics = await chip.evaluate((el) => {
+      const avatar = el.querySelector('.avatar')
+      const button = el.querySelector('button')
+      const chipBox = el.getBoundingClientRect()
+      const avatarBox = avatar.getBoundingClientRect()
+      const buttonBox = button.getBoundingClientRect()
+
+      // Where the initials really are, not just the element box.
+      const range = document.createRange()
+      range.selectNodeContents(avatar)
+      const textBox = range.getBoundingClientRect()
+
+      return {
+        leftInset: Math.round(avatarBox.left - chipBox.left),
+        rightInset: Math.round(chipBox.right - buttonBox.right),
+        circleCenter: avatarBox.left + avatarBox.width / 2,
+        textCenter: textBox.left + textBox.width / 2,
+      }
+    })
+
+    // The glyphs stay centred in the circle.
+    expect(Math.abs(metrics.textCenter - metrics.circleCenter)).toBeLessThan(1)
+
+    // The complaint was a visibly bigger gap on the left of the pill than on
+    // its right (6 vs 4). Now the difference must not be perceptible.
+    expect(Math.abs(metrics.leftInset - metrics.rightInset)).toBeLessThanOrEqual(1)
+  })
 })

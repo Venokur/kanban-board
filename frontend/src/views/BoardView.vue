@@ -121,6 +121,11 @@ function onKeydown(e) {
   }
   if (isTypingTarget(e.target)) return
 
+  // An open card panel is the top layer: board-level single-key shortcuts would
+  // otherwise fire behind it as soon as focus sits on a panel button (or the
+  // panel itself). Esc is handled by CardModal.
+  if (activeCard.value) return
+
   if (ui.closeTopLayer()) {
     // Let the layer close first, then stop the rest of the handling.
     e.preventDefault()

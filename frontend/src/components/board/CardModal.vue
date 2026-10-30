@@ -8,6 +8,7 @@
           role="dialog"
           aria-modal="true"
           aria-label="Карточка"
+          tabindex="-1"
           @keydown="onPanelKeydown"
         >
           <header class="panel-top">
@@ -28,7 +29,6 @@
           <div class="panel-body">
             <!-- Title -->
             <textarea
-              ref="titleEl"
               v-model="title"
               class="title-input"
               rows="1"
@@ -504,7 +504,6 @@ const labelColor = ref(LABEL_COLOR_KEYS[0])
 
 const events = ref([])
 
-const titleEl = ref(null)
 const descEl = ref(null)
 const commentEl = ref(null)
 
@@ -537,7 +536,11 @@ watch(visible, async (v) => {
     return
   }
   await nextTick()
-  titleEl.value && titleEl.value.focus()
+  // Focus the dialog itself, not the title: opening a card must not put the
+  // caret in the title (that reads as "edit mode") and must not scroll the
+  // panel. A focus target inside the panel also keeps the Tab trap and Esc
+  // handling working, which body focus would bypass.
+  if (panelEl.value) panelEl.value.focus({ preventScroll: true })
   loadEvents()
 })
 
@@ -923,6 +926,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The panel is a programmatic focus target (see watch(visible)), so it must
+     never paint a focus ring. */
+  outline: none;
 }
 .slide-enter-active,
 .slide-leave-active {

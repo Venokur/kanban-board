@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Lib;
 
-use Swoole\Http\Request;
+use App\Rt\Request;
 
 final class Http
 {
+    /** Hard cap on request bodies so a single client cannot exhaust memory. */
+    public const MAX_BODY = 1048576; // 1 MiB
+
     /**
-     * Decode a JSON request body into an associative array.
      * @return array<string,mixed>
      */
     public static function body(Request $request): array
@@ -17,6 +19,9 @@ final class Http
         $raw = (string)$request->rawContent();
         if ($raw === '') {
             return [];
+        }
+        if (strlen($raw) > self::MAX_BODY) {
+            throw new HttpException(413, 'Слишком большой запрос');
         }
         $data = json_decode($raw, true);
         if (!is_array($data)) {
@@ -56,6 +61,52 @@ final class Http
             throw new HttpException(422, 'Поле "' . $key . '" слишком длинное');
         }
         return trim($value);
+    }
+
+    public static function requireInt(array $body, string $key, int $min, int $max): int
+    {
+        $value = $body[$key] ?? null;
+        if (!is_int($value) && !(is_string($value) && preg_match('~^-?\d+$~', $value) === 1)) {
+            throw new HttpException(422, 'Поле "' . $key . '" должно быть целым числом');
+        }
+        $int = (int)$value;
+        if ($int < $min || $int > $max) {
+            throw new HttpException(422, 'Поле "' . $key . '" должно быть в диапазоне ' . $min . '…' . $max);
+        }
+        return $int;
+    }
+
+    public static function optionalInt(array $body, string $key, int $min, int $max): ?int
+    {
+        $value = $body[$key] ?? null;
+        if ($value === null || $value === '') {
+            return null;
+        }
+        return self::requireInt($body, $key, $min, $max);
+    }
+
+    public static function requireBool(array $body, string $key): bool
+    {
+        $value = $body[$key] ?? null;
+        if (!is_bool($value)) {
+            throw new HttpException(422, 'Поле "' . $key . '" должно быть boolean');
+        }
+        return $value;
+    }
+
+    /** @return array<int,int> */
+    public static function requireIntList(array $body, string $key): array
+    {
+        $value = $body[$key] ?? null;
+        if (!is_array($value)) {
+            throw new HttpException(422, 'Поле "' . $key . '" должно быть массивом');
+        }
+        foreach ($value as $item) {
+            if (!is_int($item) && !(is_string($item) && ctype_digit($item))) {
+                throw new HttpException(422, 'Поле "' . $key . '" должно содержать числа');
+            }
+        }
+        return array_values(array_unique(array_map('intval', $value)));
     }
 
     public static function length(string $value): int

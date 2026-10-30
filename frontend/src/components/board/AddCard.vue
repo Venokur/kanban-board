@@ -1,6 +1,11 @@
 <template>
   <div class="add-card">
-    <button v-if="!open" class="add-card-btn" @click="openEditor">
+    <button
+      v-if="!open"
+      class="add-card-btn"
+      :data-column-add="columnId"
+      @click="openEditor"
+    >
       <SvgIcon name="plus" :size="16" />
       <span>Добавить карточку</span>
     </button>
@@ -13,6 +18,7 @@
         rows="3"
         maxlength="1000"
         placeholder="Введите заголовок карточки"
+        aria-label="Заголовок новой карточки"
         @keydown.esc="close"
         @keydown.enter="onKey"
       />
@@ -20,7 +26,7 @@
         <button class="btn" :disabled="!canSave || saving" @click="submit">
           {{ saving ? '…' : 'Добавить' }}
         </button>
-        <button class="icon-btn" title="Отмена" @click="close">
+        <button class="icon-btn" aria-label="Отменить добавление" v-tooltip="'Отмена'" @click="close">
           <SvgIcon name="close" :size="16" />
         </button>
       </div>
@@ -105,7 +111,7 @@ async function submit() {
 }
 .add-card-form .textarea {
   margin-top: 2px;
-  background: #fff;
+  background: var(--surface);
 }
 .add-card-actions {
   margin-top: 6px;

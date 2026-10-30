@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Cancel a superseded run on the same ref instead of stacking builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PHP_VERSION: '8.3'
+  NODE_VERSION: '20'
+  # The compose stack publishes the app on 9501; Playwright and the API smoke
+  # test use the same base URL.
+  BASE_URL: http://localhost:9501
+
+jobs:
+  # ---------------------------------------------------------------- PHP statics
+  php-static:
+    name: PHP static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      # composer.json requires ext-openswoole, which only exists inside the
+      # image. Installing dev tooling does not need the extension itself.
+      - name: Install dev dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+        env:
+          COMPOSER_IGNORE_PLATFORM_REQS: '1'
+
+      - name: PHP syntax check
+        run: |
+          find backend/src backend/tests backend/stubs -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
+          echo "php -l: all files OK"
+
+      - name: PHP-CS-Fixer (dry run)
+        run: vendor/bin/php-cs-fixer fix --dry-run --diff --using-cache=no
+
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --error-format=github
+
+  # ------------------------------------------------------------------- PHP unit
+  php-unit:
+    name: PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dev dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+        env:
+          COMPOSER_IGNORE_PLATFORM_REQS: '1'
+
+      # The unit suite loads backend/stubs/rt.stub.php instead of the real
+      # extension, so it runs without OpenSwoole.
+      - name: Run unit tests
+        run: vendor/bin/phpunit --colors=always
+
+  # ------------------------------------------------------------------ frontend
+  frontend:
+    name: Frontend build & unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - run: npm install
+      - name: Vitest
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  # ------------------------------------------------- docker + api + playwright
+  e2e:
+    name: Docker stack, API smoke & Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start the stack
+        run: docker compose up -d
+
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "$BASE_URL/api/health" | grep -q '"ok":true'; then
+              echo "API is up after ${i}s"
+              curl -fsS "$BASE_URL/api/health"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy in time" >&2
+          docker compose logs --no-color app >&2
+          exit 1
+
+      - name: Apply migrations
+        run: docker compose exec -T app php src/migrate.php
+
+      - name: API smoke test
+        # Cookie sessions + double-submit CSRF: keep the jar, read kb_csrf, send it back.
+        run: |
+          set -euo pipefail
+          jar="$(mktemp)"
+          base="$BASE_URL"
+          login=$(curl -fsS -c "$jar" -H 'Content-Type: application/json' \
+            -d '{"email":"demo@kanban.local","password":"demo1234"}' "$base/api/login")
+          csrf=$(printf '%s' "$login" | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf"])')
+          echo "logged in as $(printf '%s' "$login" | python3 -c 'import json,sys; print(json.load(sys.stdin)["user"]["name"])')"
+          curl -fsS -b "$jar" "$base/api/me" > /dev/null
+          curl -fsS -b "$jar" "$base/api/board" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "revision" in d and isinstance(d["columns"], list); print("snapshot revision", d["revision"])'
+          # CSRF is enforced: the same mutation must fail without the header.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X PUT \
+            -H 'Content-Type: application/json' -d '{"name":"no-csrf"}' "$base/api/board")
+          test "$code" = "403" || { echo "expected 403 without CSRF, got $code" >&2; exit 1; }
+          # And succeed with it.
+          curl -fsS -b "$jar" -X PUT -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $csrf" -d '{"name":"Демо доска"}' "$base/api/board" > /dev/null
+          echo "API smoke: OK"
+
+      - name: Install Playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Playwright
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Application logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

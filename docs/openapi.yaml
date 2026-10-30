@@ -1,0 +1,1114 @@
+openapi: 3.1.0
+
+info:
+  title: Kanban Board API
+  version: 2.0.0
+  description: |
+    HTTP API of the single shared kanban board.
+
+    ## Authentication
+    Sessions live in an **HttpOnly cookie** (`kb_session`, 30 days). Log in with
+    `POST /api/login`; the browser then sends the cookie automatically.
+
+    ## CSRF
+    Every mutating request authenticated *by cookie* must echo the `kb_csrf`
+    cookie value in the `X-CSRF-Token` header (double submit). Anonymous requests
+    and clients using `X-Auth-Token` (no ambient credentials) are exempt.
+    A mismatch is answered with **403**.
+
+    ## Snapshots and revisions
+    Every mutation answers with the full board snapshot, and the same snapshot is
+    broadcast to all WebSocket clients. `revision` increases monotonically, so a
+    client must ignore a snapshot older than the one it already has (HTTP
+    responses and WS pushes can arrive out of order).
+
+    ## Errors
+    All errors share one shape: `{"error": "текст", "code": <status>}`.
+    User-facing messages are in Russian.
+
+servers:
+  - url: http://localhost:9501
+    description: Local docker compose (prod mode)
+
+tags:
+  - name: Auth
+  - name: Board
+  - name: Columns
+  - name: Cards
+  - name: Labels
+  - name: Checklist
+  - name: Comments
+
+security:
+  - sessionCookie: []
+  - authToken: []
+
+paths:
+  /api/health:
+    get:
+      tags: [Auth]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, runtime]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  runtime:
+                    type: string
+                    examples: [OpenSwoole]
+
+  /api/register:
+    post:
+      tags: [Auth]
+      summary: Create an account and start a session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  maxLength: 80
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                password:
+                  type: string
+                  minLength: 6
+                  maxLength: 128
+            examples:
+              default:
+                value:
+                  name: Demo User
+                  email: demo@kanban.local
+                  password: demo1234
+      responses:
+        '200':
+          description: Session started; cookies set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: '`kb_session` (HttpOnly) and `kb_csrf` (readable)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPayload'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/login:
+    post:
+      tags: [Auth]
+      summary: Start a session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+            examples:
+              demo:
+                value:
+                  email: demo@kanban.local
+                  password: demo1234
+      responses:
+        '200':
+          description: Session started; cookies set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/logout:
+    post:
+      tags: [Auth]
+      summary: Destroy the session and clear cookies
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        '200':
+          description: The authenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserSelf'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/board:
+    get:
+      tags: [Board]
+      summary: Full board snapshot
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Board]
+      summary: Rename the board
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+            examples:
+              default:
+                value:
+                  name: Демо доска
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/board/archive:
+    get:
+      tags: [Board]
+      summary: Archived cards
+      description: Unlike the other reads and mutations, this returns only the archive list, not a full snapshot.
+      responses:
+        '200':
+          description: Archived cards, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cards]
+                properties:
+                  cards:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ArchivedCard'
+
+  /api/columns:
+    post:
+      tags: [Columns]
+      summary: Create a column at the end of the board
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/columns/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Columns]
+      summary: Update a column
+      description: Any subset of the fields may be sent. `null` clears `wipLimit`/`accent`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                wipLimit:
+                  type: [integer, 'null']
+                  minimum: 1
+                  maximum: 999
+                accent:
+                  oneOf:
+                    - $ref: '#/components/schemas/LabelColor'
+                    - type: 'null'
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+    delete:
+      tags: [Columns]
+      summary: Delete a column and everything inside it
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/columns/order:
+    post:
+      tags: [Columns]
+      summary: Persist the column order after drag & drop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columnIds]
+              properties:
+                columnIds:
+                  type: array
+                  items:
+                    type: integer
+                  description: Every column id, in the new order
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/cards:
+    post:
+      tags: [Cards]
+      summary: Create a card at the end of a column
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columnId, title]
+              properties:
+                columnId:
+                  type: integer
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                description:
+                  type: string
+                  maxLength: 20000
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/cards/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Cards]
+      summary: Update card fields
+      description: |
+        Any subset may be sent. `assigneeId`, `dueDate`, `coverColor` and
+        `estimate` accept `null` to be cleared; `labelIds` replaces the whole set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                description:
+                  type: string
+                  maxLength: 20000
+                assigneeId:
+                  type: [integer, 'null']
+                dueDate:
+                  type: [string, 'null']
+                  format: date
+                priority:
+                  type: integer
+                  minimum: 0
+                  maximum: 3
+                  description: 0 none, 1 low, 2 medium, 3 high
+                labelIds:
+                  type: array
+                  items:
+                    type: integer
+                coverColor:
+                  oneOf:
+                    - $ref: '#/components/schemas/LabelColor'
+                    - type: 'null'
+                estimate:
+                  type: [number, 'null']
+                  minimum: 0
+                  maximum: 9999
+                  description: Hours
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+    delete:
+      tags: [Cards]
+      summary: Delete a card permanently
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cards/order:
+    post:
+      tags: [Cards]
+      summary: Persist the card order after drag & drop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columns]
+              properties:
+                columns:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, cards]
+                    properties:
+                      id:
+                        type: integer
+                      cards:
+                        type: array
+                        items:
+                          type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/cards/{id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Cards]
+      summary: Move a card to the archive
+      description: Positions of the remaining cards in the column are compacted.
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cards/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Cards]
+      summary: Restore a card from the archive to the end of its column
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cards/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Cards]
+      summary: Card activity timeline
+      description: Newest first, capped server-side.
+      responses:
+        '200':
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CardEvent'
+
+  /api/labels:
+    post:
+      tags: [Labels]
+      summary: Create a label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                color:
+                  $ref: '#/components/schemas/LabelColor'
+      responses:
+        '200':
+          description: Snapshot plus the id of the new label
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Snapshot'
+                  - type: object
+                    required: [createdLabelId]
+                    properties:
+                      createdLabelId:
+                        type: integer
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/labels/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Labels]
+      summary: Update a label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                color:
+                  $ref: '#/components/schemas/LabelColor'
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Labels]
+      summary: Delete a label and detach it from every card
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/labels/order:
+    post:
+      tags: [Labels]
+      summary: Persist the label order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [labelIds]
+              properties:
+                labelIds:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '422':
+          $ref: '#/components/responses/Validation'
+
+  /api/cards/{cardId}/checklist:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    post:
+      tags: [Checklist]
+      summary: Add a checklist item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cards/{cardId}/checklist/order:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    post:
+      tags: [Checklist]
+      summary: Persist the checklist order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemIds]
+              properties:
+                itemIds:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+
+  /api/checklist/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Checklist]
+      summary: Update a checklist item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                done:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Checklist]
+      summary: Delete a checklist item
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cards/{cardId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    get:
+      tags: [Comments]
+      summary: Comments of one card
+      responses:
+        '200':
+          description: Comments, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+    post:
+      tags: [Comments]
+      summary: Add a comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/comments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Comments]
+      summary: Delete a comment
+      responses:
+        '200':
+          $ref: '#/components/responses/Snapshot'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: kb_session
+      description: |
+        HttpOnly session cookie set by `/api/login`. Mutating requests must also
+        send the `kb_csrf` cookie value in `X-CSRF-Token`.
+    authToken:
+      type: apiKey
+      in: header
+      name: X-Auth-Token
+      description: |
+        Raw session token for non-browser clients. Only issued by login/register
+        when `APP_LEGACY_TOKEN=1`; exempt from CSRF (no ambient credentials).
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+      description: Numeric id. Non-numeric values do not match any route (404).
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    Snapshot:
+      description: Fresh board snapshot (also broadcast over WebSocket)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Snapshot'
+    Unauthorized:
+      description: No valid session
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unauthorized:
+              value:
+                error: Не авторизован
+                code: 401
+    Csrf:
+      description: CSRF token missing or wrong (403, not 419 — the runtime has no 419 reason phrase)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            csrf:
+              value:
+                error: Истекла CSRF-защита, обновите страницу
+                code: 403
+    NotFound:
+      description: Entity or route not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            notFound:
+              value:
+                error: Не найдено
+                code: 404
+    Conflict:
+      description: Value already taken (duplicate e-mail)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Validation:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            required:
+              value:
+                error: 'Поле "title" обязательно'
+                code: 422
+    TooManyRequests:
+      description: Rate limit exceeded (login/register)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: integer
+
+    LabelColor:
+      type: string
+      description: Palette key, not a hex value
+      enum: [violet, sky, mint, amber, rose, slate]
+
+    UserSelf:
+      type: object
+      required: [id, email, name]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+
+    SessionPayload:
+      type: object
+      required: [csrf, user]
+      properties:
+        csrf:
+          type: string
+          description: Value to echo in `X-CSRF-Token`
+        user:
+          $ref: '#/components/schemas/UserSelf'
+        token:
+          type: string
+          description: Only present when `APP_LEGACY_TOKEN=1`
+
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    Label:
+      type: object
+      required: [id, name, color]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        color:
+          $ref: '#/components/schemas/LabelColor'
+        position:
+          type: integer
+
+    ChecklistItem:
+      type: object
+      required: [id, text, done, position]
+      properties:
+        id:
+          type: integer
+        text:
+          type: string
+        done:
+          type: boolean
+        position:
+          type: integer
+
+    Comment:
+      type: object
+      required: [id, body, createdAt]
+      properties:
+        id:
+          type: integer
+        body:
+          type: string
+        author:
+          oneOf:
+            - $ref: '#/components/schemas/User'
+            - type: 'null'
+        createdAt:
+          type: [integer, 'null']
+          description: Unix milliseconds
+
+    Card:
+      type: object
+      required: [id, title, description, position, priority, labels, checklist, comments]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        position:
+          type: integer
+          description: Dense numbering from 1 within the column
+        author:
+          oneOf:
+            - $ref: '#/components/schemas/User'
+            - type: 'null'
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/User'
+            - type: 'null'
+        dueDate:
+          type: [string, 'null']
+          format: date
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 3
+        coverColor:
+          oneOf:
+            - $ref: '#/components/schemas/LabelColor'
+            - type: 'null'
+        estimate:
+          type: [number, 'null']
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        checklist:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        createdAt:
+          type: [integer, 'null']
+          description: Unix milliseconds
+        updatedAt:
+          type: [integer, 'null']
+          description: Unix milliseconds
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+
+    Column:
+      type: object
+      required: [id, title, position, cards]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        position:
+          type: integer
+        wipLimit:
+          type: [integer, 'null']
+        accent:
+          oneOf:
+            - $ref: '#/components/schemas/LabelColor'
+            - type: 'null'
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+
+    Presence:
+      type: object
+      description: Live WebSocket state at the moment the snapshot was built
+      required: [users, watching]
+      properties:
+        users:
+          type: array
+          description: Ids of users with an open socket
+          items:
+            type: integer
+        watching:
+          type: object
+          description: card id → number of clients with that card panel open
+          additionalProperties:
+            type: integer
+
+    Snapshot:
+      type: object
+      required: [revision, board, labels, users, columns, presence]
+      properties:
+        revision:
+          type: integer
+          description: Monotonic; a client must ignore an older revision
+        board:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        users:
+          type: array
+          description: Users selectable as an assignee
+          items:
+            $ref: '#/components/schemas/User'
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/Column'
+        presence:
+          $ref: '#/components/schemas/Presence'
+
+    ArchivedCard:
+      type: object
+      required: [id, title, columnId, columnTitle, archivedAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        columnId:
+          type: integer
+        columnTitle:
+          type: string
+        archivedAt:
+          type: [integer, 'null']
+          description: Unix milliseconds
+
+    CardEvent:
+      type: object
+      required: [id, kind, createdAt]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum:
+            - card.created
+            - card.updated
+            - card.moved
+            - card.archived
+            - card.restored
+            - card.deleted
+            - comment.added
+            - comment.deleted
+            - checklist.added
+            - checklist.updated
+            - checklist.deleted
+            - label.attached
+            - label.detached
+            - attachment.added
+            - attachment.removed
+        payload:
+          type: object
+          additionalProperties: true
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/User'
+            - type: 'null'
+        createdAt:
+          type: [integer, 'null']
+          description: Unix milliseconds

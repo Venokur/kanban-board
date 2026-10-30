@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Lib;
 
-use Swoole\Http\Request;
-use Swoole\Http\Response;
+use App\Rt\Request;
+use App\Rt\Response;
 
 final class Router
 {
@@ -25,19 +25,27 @@ final class Router
     public function dispatch(string $method, string $path, Request $request, Response $response): mixed
     {
         $method = strtoupper($method);
+        $pathMatched = false;
+
         foreach ($this->routes as $route) {
-            if ($route['m'] !== $method) {
+            if (!preg_match($route['re'], $path, $matches)) {
                 continue;
             }
-            if (preg_match($route['re'], $path, $matches)) {
-                $params = [];
-                foreach ($matches as $key => $value) {
-                    if (!is_int($key)) {
-                        $params[$key] = (int)$value;
-                    }
-                }
-                return call_user_func($route['handler'], $request, $response, $params);
+            $pathMatched = true;
+            if ($route['m'] !== $method && !($method === 'HEAD' && $route['m'] === 'GET')) {
+                continue;
             }
+            $params = [];
+            foreach ($matches as $key => $value) {
+                if (!is_int($key)) {
+                    $params[$key] = (int)$value;
+                }
+            }
+            return call_user_func($route['handler'], $request, $response, $params);
+        }
+
+        if ($pathMatched) {
+            throw new HttpException(405, 'Метод не поддерживается');
         }
         throw new HttpException(404, 'Не найдено');
     }

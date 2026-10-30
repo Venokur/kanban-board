@@ -23,19 +23,12 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  if (auth.user) {
-    return to.meta.guest ? { name: 'board' } : true
+  if (!auth.ready) {
+    await auth.bootstrap()
   }
 
-  if (!auth.user && auth.token) {
-    try {
-      await auth.bootstrap()
-    } catch (e) {
-      // token invalid — session already cleared
-    }
-    if (auth.user) {
-      return to.meta.guest ? { name: 'board' } : true
-    }
+  if (auth.user) {
+    return to.meta.guest ? { name: 'board' } : true
   }
 
   if (to.meta.auth) {

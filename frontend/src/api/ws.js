@@ -1,21 +1,41 @@
-import { getToken } from './http'
+import { reactive } from 'vue'
 
 let socket = null
 let retryMs = 1500
 let pingTimer = null
+let reconnectTimer = null
 let stopped = true
+let manualStop = false
 
-const handlers = {}
+const handlers = new Map()
 
+/** Reactive connection state for badges and empty states. */
+export const wsState = reactive({
+  status: 'idle', // idle | connecting | open | closed
+  retryIn: 0,
+  lastOpenAt: 0,
+})
+
+/**
+ * Subscribe to a server message type. Returns the unsubscribe function, so
+ * components can clean up in `onBeforeUnmount` (the old API leaked a handler
+ * on every mount).
+ */
 export function wsOn(type, cb) {
-  if (!handlers[type]) handlers[type] = []
-  handlers[type].push(cb)
+  if (!handlers.has(type)) handlers.set(type, new Set())
+  handlers.get(type).add(cb)
+  return () => {
+    const list = handlers.get(type)
+    if (!list) return
+    list.delete(cb)
+    if (!list.size) handlers.delete(type)
+  }
 }
 
 function emit(type, data) {
-  const list = handlers[type]
+  const list = handlers.get(type)
   if (!list) return
-  for (const fn of list) {
+  for (const fn of [...list]) {
     try {
       fn(data)
     } catch (e) {
@@ -26,12 +46,13 @@ function emit(type, data) {
 
 function connect() {
   if (!stopped) return
-  const token = getToken()
-  if (!token) return
-
   stopped = false
+  clearTimeout(reconnectTimer)
+  wsState.status = 'connecting'
+
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`
+  // No token in the URL: the HttpOnly session cookie is sent with the handshake.
+  const url = `${proto}://${location.host}/ws`
 
   try {
     socket = new WebSocket(url)
@@ -42,6 +63,9 @@ function connect() {
 
   socket.onopen = () => {
     retryMs = 1500
+    wsState.status = 'open'
+    wsState.retryIn = 0
+    wsState.lastOpenAt = Date.now()
     clearInterval(pingTimer)
     pingTimer = setInterval(() => {
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -61,10 +85,17 @@ function connect() {
     emit(msg.type, msg.data)
   }
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     clearInterval(pingTimer)
     socket = null
-    if (!stopped && getToken()) scheduleReconnect()
+    wsState.status = 'closed'
+    emit('close', event || null)
+    // 1008 = rejected handshake (expired session): do not hammer the server.
+    if (!manualStop && event && event.code === 1008) {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'))
+      return
+    }
+    if (!stopped) scheduleReconnect()
   }
 
   socket.onerror = () => {
@@ -78,21 +109,27 @@ function connect() {
 
 function scheduleReconnect() {
   stopped = true
-  setTimeout(() => {
-    if (!getToken()) return
+  // Jittered backoff so a server restart does not produce a thundering herd.
+  const wait = Math.round(retryMs * (0.8 + Math.random() * 0.4))
+  wsState.retryIn = Math.round(wait / 1000)
+  reconnectTimer = setTimeout(() => {
+    if (manualStop) return
     connect()
-  }, retryMs)
+  }, wait)
   retryMs = Math.min(retryMs * 1.8, 30000)
 }
 
 export function startWs() {
+  manualStop = false
   stopped = true
   connect()
 }
 
 export function stopWs() {
+  manualStop = true
   stopped = true
   clearInterval(pingTimer)
+  clearTimeout(reconnectTimer)
   if (socket) {
     try {
       socket.close()
@@ -101,8 +138,21 @@ export function stopWs() {
     }
     socket = null
   }
+  wsState.status = 'idle'
 }
 
 export function isWsOpen() {
   return !!(socket && socket.readyState === WebSocket.OPEN)
+}
+
+/** Ask the server to broadcast which card we are looking at. */
+export function wsWatch(cardId) {
+  if (!isWsOpen()) return
+  socket.send(JSON.stringify({ type: 'presence:watch', cardId: cardId ?? null }))
+}
+
+export function wsRequestBoard() {
+  if (!isWsOpen()) return false
+  socket.send(JSON.stringify({ type: 'board:get' }))
+  return true
 }

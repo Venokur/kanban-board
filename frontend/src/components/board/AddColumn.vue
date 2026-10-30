@@ -19,7 +19,7 @@
         <button class="btn" :disabled="!canSave || saving" @click="submit">
           {{ saving ? '…' : 'Добавить колонку' }}
         </button>
-        <button class="icon-btn" title="Отмена" @click="close">
+        <button class="icon-btn" aria-label="Отменить добавление" v-tooltip="'Отмена'" @click="close">
           <SvgIcon name="close" :size="16" />
         </button>
       </div>

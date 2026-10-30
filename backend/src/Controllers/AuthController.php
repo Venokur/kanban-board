@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Lib\Auth;
+use App\Lib\Config;
 use App\Lib\Db;
 use App\Lib\Http;
 use App\Lib\HttpException;
-use Swoole\Http\Request;
-use Swoole\Http\Response;
+use App\Lib\RateLimit;
+use App\Rt\Request;
+use App\Rt\Response;
 
 final class AuthController
 {
@@ -27,17 +29,21 @@ final class AuthController
             throw new HttpException(422, 'Пароль должен быть не короче 6 символов');
         }
 
-        $existing = Db::queryOne('SELECT id FROM users WHERE email = ' . Db::quote($email));
+        self::throttle('register|' . self::clientIp($request) . '|' . $email);
+
+        $existing = Db::queryOne('SELECT id FROM users WHERE email = ?', [$email]);
         if ($existing !== null) {
             throw new HttpException(409, 'Пользователь с таким email уже существует');
         }
 
-        Db::exec(
-            'INSERT INTO users (email, password_hash, name)
-             VALUES (' . Db::quote($email) . ', ' . Db::quote(password_hash($password, PASSWORD_DEFAULT))
-            . ', ' . Db::quote($name) . ')'
+        $user = Db::queryOne(
+            'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)
+             RETURNING id, email, name',
+            [$email, password_hash($password, PASSWORD_DEFAULT), $name],
         );
-        $user = Db::queryOne('SELECT id, email, name FROM users WHERE email = ' . Db::quote($email));
+        if ($user === null) {
+            throw new HttpException(500, 'Не удалось создать пользователя');
+        }
 
         return self::startSession($response, $user);
     }
@@ -48,11 +54,22 @@ final class AuthController
         $email = strtolower(Http::requireString($body, 'email', 254));
         $password = Http::requireString($body, 'password', 128, false);
 
-        $user = Db::queryOne('SELECT id, email, name, password_hash FROM users WHERE email = ' . Db::quote($email));
+        $key = 'login|' . self::clientIp($request) . '|' . $email;
+        if (RateLimit::tooMany($key)) {
+            throw new HttpException(429, 'Слишком много попыток. Повторите через '
+                . RateLimit::retryAfter($key) . ' с.');
+        }
+
+        $user = Db::queryOne(
+            'SELECT id, email, name, password_hash FROM users WHERE email = ?',
+            [$email],
+        );
         if ($user === null || !password_verify($password, (string)$user['password_hash'])) {
+            RateLimit::hit($key);
             throw new HttpException(401, 'Неверный email или пароль');
         }
 
+        RateLimit::clear($key);
         unset($user['password_hash']);
         return self::startSession($response, $user);
     }
@@ -61,7 +78,7 @@ final class AuthController
     {
         $token = Auth::token($request);
         Auth::destroy($token);
-        $response->cookie(Auth::COOKIE, '', time() - 3600, '/');
+        self::clearCookie($response);
         return ['ok' => true];
     }
 
@@ -78,15 +95,72 @@ final class AuthController
     {
         $userId = (int)$user['id'];
         $token = Auth::issue($userId);
-        $response->cookie(Auth::COOKIE, $token, time() + 30 * 86400, '/');
+        self::setCookie($response, $token);
 
-        return [
-            'token' => $token,
+        $payload = [
+            'csrf' => Auth::csrfToken($token),
             'user' => [
                 'id' => $userId,
                 'email' => (string)$user['email'],
                 'name' => (string)$user['name'],
             ],
         ];
+
+        // The session cookie is HttpOnly; the raw token is only echoed for
+        // non-browser clients (curl, integration tests). Browsers never need it.
+        if (Config::bool('APP_LEGACY_TOKEN', false)) {
+            $payload['token'] = $token;
+        }
+        return $payload;
+    }
+
+    private static function setCookie(Response $response, string $token): void
+    {
+        $expires = time() + Auth::SESSION_TTL;
+        // OpenSwoole's cookie() is positional (key, value, expire, path, domain,
+        // secure, httpOnly, sameSite) — it does not accept setcookie()'s array.
+        self::writeCookie($response, Auth::COOKIE, $token, $expires, true);
+        self::writeCookie($response, Auth::CSRF_COOKIE, Auth::csrfToken($token), $expires, false);
+    }
+
+    private static function clearCookie(Response $response): void
+    {
+        $expires = time() - 3600;
+        self::writeCookie($response, Auth::COOKIE, '', $expires, true);
+        self::writeCookie($response, Auth::CSRF_COOKIE, '', $expires, false);
+    }
+
+    private static function writeCookie(
+        Response $response,
+        string $name,
+        string $value,
+        int $expires,
+        bool $httpOnly,
+    ): void {
+        $response->cookie($name, $value, $expires, '/', '', self::isHttps(), $httpOnly, 'Lax');
+    }
+
+    private static function isHttps(): bool
+    {
+        $forwarded = getenv('APP_HTTPS');
+        return $forwarded !== false && in_array(strtolower((string)$forwarded), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private static function clientIp(Request $request): string
+    {
+        $forwarded = $request->header['x-forwarded-for'] ?? null;
+        if (is_string($forwarded) && $forwarded !== '') {
+            return trim(explode(',', $forwarded)[0]);
+        }
+        $server = $request->server['remote_addr'] ?? '';
+        return is_string($server) && $server !== '' ? $server : 'unknown';
+    }
+
+    private static function throttle(string $key): void
+    {
+        if (RateLimit::tooMany($key)) {
+            throw new HttpException(429, 'Слишком много попыток. Повторите позже.');
+        }
+        RateLimit::hit($key);
     }
 }

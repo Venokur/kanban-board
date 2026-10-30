@@ -1,0 +1,11 @@
+parameters:
+    level: 5
+    paths:
+        - backend/src
+    scanDirectories:
+        - backend/stubs
+    excludePaths:
+        - backend/src/rt.php
+        - backend/src/autoload.php
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false

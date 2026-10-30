@@ -1,21 +1,32 @@
-const TOKEN_KEY = 'kb_token'
+const CSRF_COOKIE = 'kb_csrf'
+const CSRF_HEADER = 'X-CSRF-Token'
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || ''
+/** In-memory fallback when the CSRF cookie is not readable (e.g. blocked). */
+let csrfMemory = ''
+
+export function setCsrf(token) {
+  csrfMemory = token || ''
 }
 
-export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
+function readCookie(name) {
+  const prefix = `${name}=`
+  for (const part of document.cookie.split(';')) {
+    const entry = part.trim()
+    if (entry.startsWith(prefix)) return decodeURIComponent(entry.slice(prefix.length))
+  }
+  return ''
 }
 
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+export function csrfToken() {
+  return readCookie(CSRF_COOKIE) || csrfMemory
 }
 
 async function request(method, path, body) {
   const headers = { 'Content-Type': 'application/json' }
-  const token = getToken()
-  if (token) headers['X-Auth-Token'] = token
+  if (method !== 'GET') {
+    const csrf = csrfToken()
+    if (csrf) headers[CSRF_HEADER] = csrf
+  }
 
   const res = await fetch(path, {
     method,
@@ -29,14 +40,17 @@ async function request(method, path, body) {
       window.dispatchEvent(new CustomEvent('auth:unauthorized'))
     }
     let message = 'Ошибка запроса'
+    let code = res.status
     try {
       const data = await res.json()
       if (data && data.error) message = data.error
+      if (data && data.code) code = data.code
     } catch (e) {
-      /* ignore */
+      /* ignore non-JSON error bodies */
     }
     const err = new Error(message)
     err.status = res.status
+    err.code = code
     throw err
   }
   if (res.status === 204) return null

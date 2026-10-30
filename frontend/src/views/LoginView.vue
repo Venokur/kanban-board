@@ -16,29 +16,55 @@
         <button class="tab" :class="{ active: mode === 'register' }" @click="mode = 'register'">Регистрация</button>
       </div>
 
-      <form class="form" @submit.prevent="submit">
+      <form class="form" novalidate @submit.prevent="submit">
         <div v-if="mode === 'register'" class="field">
-          <label>Имя</label>
-          <input v-model="form.name" class="input" autocomplete="name" placeholder="Как вас зовут?" />
-        </div>
-
-        <div class="field">
-          <label>Email</label>
-          <input v-model="form.email" type="email" class="input" autocomplete="email" placeholder="you@example.com" />
-        </div>
-
-        <div class="field">
-          <label>Пароль</label>
+          <label for="login-name">Имя</label>
           <input
-            v-model="form.password"
-            type="password"
+            id="login-name"
+            v-model="form.name"
             class="input"
-            :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
-            placeholder="••••••••"
+            autocomplete="name"
+            placeholder="Как вас зовут?"
           />
         </div>
 
-        <p v-if="error" class="form-error">
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input
+            id="login-email"
+            v-model="form.email"
+            type="email"
+            class="input"
+            autocomplete="email"
+            placeholder="you@example.com"
+          />
+        </div>
+
+        <div class="field">
+          <label for="login-password">Пароль</label>
+          <div class="password-wrap">
+            <input
+              id="login-password"
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              class="input input--toggle"
+              :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+              :aria-pressed="showPassword"
+              v-tooltip="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+              @click="showPassword = !showPassword"
+            >
+              <SvgIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
+            </button>
+          </div>
+        </div>
+
+        <p v-if="error" class="form-error" role="alert">
           <SvgIcon name="help" :size="14" />
           {{ error }}
         </p>
@@ -74,6 +100,7 @@ const router = useRouter()
 const mode = ref('login')
 const busy = ref(false)
 const error = ref('')
+const showPassword = ref(false)
 
 const form = reactive({
   name: '',
@@ -82,6 +109,7 @@ const form = reactive({
 })
 
 const isLogin = computed(() => mode.value === 'login')
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 async function submit() {
   error.value = ''
@@ -90,6 +118,10 @@ async function submit() {
 
   if (!email || !password) {
     error.value = 'Заполните email и пароль'
+    return
+  }
+  if (!EMAIL_RE.test(email)) {
+    error.value = 'Введите корректный email, например you@example.com'
     return
   }
   if (!isLogin.value && !form.name.trim()) {
@@ -142,7 +174,13 @@ async function quickDemo() {
   background:
     radial-gradient(1200px 700px at 85% -10%, rgba(139, 92, 246, 0.25), transparent 60%),
     radial-gradient(1000px 600px at 0% 110%, rgba(79, 139, 247, 0.22), transparent 60%),
-    linear-gradient(160deg, #e6e9ff 0%, #f1eeff 45%, #e3f0fb 100%);
+    var(--bg);
+}
+[data-theme='dark'] .login-wrap {
+  background:
+    radial-gradient(1200px 700px at 85% -10%, rgba(139, 92, 246, 0.22), transparent 60%),
+    radial-gradient(1000px 600px at 0% 110%, rgba(79, 139, 247, 0.16), transparent 60%),
+    var(--bg);
 }
 .blob {
   position: absolute;
@@ -150,6 +188,9 @@ async function quickDemo() {
   filter: blur(60px);
   opacity: 0.5;
   pointer-events: none;
+}
+[data-theme='dark'] .blob {
+  opacity: 0.22;
 }
 .blob--violet {
   width: 460px;
@@ -177,9 +218,9 @@ async function quickDemo() {
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--glass);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-pop);
   padding: 34px 32px 26px;
@@ -233,7 +274,7 @@ async function quickDemo() {
   transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 .tab.active {
-  background: #fff;
+  background: var(--surface);
   color: var(--accent);
   box-shadow: 0 2px 6px rgba(32, 38, 59, 0.1);
 }
@@ -246,6 +287,34 @@ async function quickDemo() {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
+}
+.password-wrap {
+  position: relative;
+}
+.input--toggle {
+  padding-right: 42px;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.password-toggle:hover,
+.password-toggle[aria-pressed='true'] {
+  background: var(--surface-3);
+  color: var(--accent);
 }
 .form-error {
   display: flex;

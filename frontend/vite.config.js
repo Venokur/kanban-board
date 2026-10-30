@@ -25,4 +25,9 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2020',
   },
+  test: {
+    environment: 'jsdom',
+    include: ['tests/**/*.test.js'],
+    reporters: 'default',
+  },
 })

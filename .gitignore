@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# PHP tooling
+/vendor/
+.php-cs-fixer.cache
+.phpunit.result.cache
+.phpunit.cache/
+
+# Test artefacts
+/coverage/
+/test-results/
+/playwright-report/
+/frontend/coverage/

@@ -2,7 +2,7 @@
   <span
     class="avatar"
     :style="{ width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.4) + 'px', background: color }"
-    :title="name"
+    v-tooltip="name"
   >{{ initials }}</span>
 </template>
 

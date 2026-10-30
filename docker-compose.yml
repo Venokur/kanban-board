@@ -31,6 +31,11 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 9501
       APP_DEBUG: ${APP_DEBUG:-0}
+      APP_SECRET: ${APP_SECRET:-kanban-csrf-secret}
+      APP_HTTPS: ${APP_HTTPS:-0}
+      APP_LEGACY_TOKEN: ${APP_LEGACY_TOKEN:-0}
+      APP_WS_QUERY_TOKEN: ${APP_WS_QUERY_TOKEN:-0}
+      SWOOLE_VARIANT: ${SWOOLE_VARIANT:-openswoole}
     depends_on:
       db:
         condition: service_healthy
